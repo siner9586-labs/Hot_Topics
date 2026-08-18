@@ -1,0 +1,32 @@
+name: Deploy Cloudflare
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: corepack enable && corepack prepare pnpm@11.18.0 --activate
+      - run: pnpm install --no-frozen-lockfile
+      - name: Require Cloudflare credentials
+        run: test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
+      - name: Ensure queues
+        run: |
+          pnpm --dir workers/pipeline exec wrangler queues create hot-topics-pipeline || true
+          pnpm --dir workers/pipeline exec wrangler queues create hot-topics-pipeline-dlq || true
+      - name: Deploy pipeline (auto-provision D1 when absent)
+        run: pnpm --dir workers/pipeline deploy
+      - name: Apply D1 migrations
+        run: pnpm --dir workers/pipeline exec wrangler d1 migrations apply hot-topics --remote
+      - name: Deploy pipeline with migrated schema
+        run: pnpm --dir workers/pipeline deploy
+      - name: Build and deploy web
+        run: pnpm --dir apps/web build && pnpm --dir apps/web deploy
