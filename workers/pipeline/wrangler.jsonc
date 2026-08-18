@@ -1,0 +1,46 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hot-topics-pipeline",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "triggers": {
+    "crons": ["0 1,4,7,10,13,16,19,22 * * *"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hot-topics",
+      "migrations_dir": "../../migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "PIPELINE_QUEUE", "queue": "hot-topics-pipeline" }
+    ],
+    "consumers": [
+      {
+        "queue": "hot-topics-pipeline",
+        "max_batch_size": 5,
+        "max_batch_timeout": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "hot-topics-pipeline-dlq"
+      }
+    ]
+  },
+  "vars": {
+    "LLM_BUDGET_PER_RUN": "8",
+    "SOURCE_BAIDU_ENABLED": "true",
+    "SOURCE_36KR_ENABLED": "true",
+    "SOURCE_PEOPLE_ENABLED": "true",
+    "SOURCE_HN_ENABLED": "true",
+    "SOURCE_WIKIMEDIA_ENABLED": "true",
+    "SOURCE_BBC_ENABLED": "true",
+    "SOURCE_GDELT_ENABLED": "false",
+    "SOURCE_YOUTUBE_ENABLED": "false",
+    "SOURCE_ZHIHU_ENABLED": "false",
+    "SOURCE_WEIBO_ENABLED": "false",
+    "SOURCE_GOOGLE_TRENDS_ENABLED": "false"
+  }
+}
