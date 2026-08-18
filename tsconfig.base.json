@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@hot-topics/core": ["packages/core/src/index.ts"],
+      "@hot-topics/shared": ["packages/shared/src/index.ts"],
+      "@hot-topics/config": ["packages/config/src/index.ts"],
+      "@hot-topics/adapters": ["packages/adapters/src/index.ts"],
+      "@hot-topics/clustering": ["packages/clustering/src/index.ts"],
+      "@hot-topics/scoring": ["packages/scoring/src/index.ts"],
+      "@hot-topics/db": ["packages/db/src/index.ts"]
+    }
+  }
+}

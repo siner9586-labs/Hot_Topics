@@ -1,0 +1,37 @@
+{
+  "name": "hot-topics-observatory",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "lint": "eslint packages workers scripts tests --max-warnings=0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "pnpm --dir workers/pipeline build && pnpm --dir apps/web build",
+    "smoke:real": "tsx scripts/real-data-smoke.ts",
+    "security:scan": "node scripts/secret-scan.mjs",
+    "quality": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "dev:web": "pnpm --dir apps/web dev",
+    "dev:pipeline": "pnpm --dir workers/pipeline dev",
+    "test:visual": "playwright test"
+  },
+  "devDependencies": {
+    "@astrojs/cloudflare": "14.1.6",
+    "@eslint/js": "10.0.1",
+    "astro": "7.1.6",
+    "eslint": "10.8.0",
+    "tsx": "4.23.1",
+    "typescript": "7.0.2",
+    "typescript-eslint": "8.65.0",
+    "vitest": "4.1.10",
+    "wrangler": "4.118.0",
+    "zod": "4.4.3",
+    "@playwright/test": "1.62.1",
+    "@types/node": "26.1.2"
+  }
+}
