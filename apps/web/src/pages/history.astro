@@ -1,0 +1,5 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';import RankingSection from '../components/RankingSection.astro';import {apiFetch,type ApiResult,type RankingRow} from '../lib/api';
+const days=Math.min(30,Math.max(1,Number(Astro.url.searchParams.get('days')??1)));const [cn,g]=await Promise.all([apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=CN&limit=30'),apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=GLOBAL&limit=30')]);
+---
+<BaseLayout title="历史 — Hot Topics"><section class="page-head"><h1>历史热点</h1><p>快照永久保留；当前页面先展示所选观察窗的最新排名入口，完整历史曲线在 Topic 详情页。</p><nav class="tabs"><a class:list={[days===1&&'active']} href="/history?days=1">今日</a><a class:list={[days===7&&'active']} href="/history?days=7">7天</a><a class:list={[days===30&&'active']} href="/history?days=30">30天</a></nav></section><RankingSection title="中国大陆" items={cn?.data??[]}/><RankingSection title="国际" items={g?.data??[]}/></BaseLayout>

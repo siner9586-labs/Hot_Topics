@@ -1,0 +1,7 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';import TopicRow from '../components/TopicRow.astro';import {apiFetch,type ApiResult,type RankingRow} from '../lib/api';
+const [cn,g]=await Promise.all([apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=CN&limit=100'),apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=GLOBAL&limit=100')]);
+const globalMap=new Map((g?.data??[]).map((x)=>[x.id,x]));
+const items=(cn?.data??[]).filter((x)=>globalMap.has(x.id)&&Number(x.heat)>=50&&Number(globalMap.get(x.id)!.heat)>=50).map((x)=>({...x,heat:(Number(x.heat)+Number(globalMap.get(x.id)!.heat))/2})).sort((a,b)=>b.heat-a.heat);
+---
+<BaseLayout title="全球共振 — Hot Topics"><section class="page-head"><h1>全球共振</h1><p>中国与国际注意力同时处于较高水平的同一 Topic。阈值将在历史样本积累后转为分位数动态阈值。</p></section><div class="topic-list">{items.map((item,i)=><TopicRow item={item} rank={i+1}/>)}</div>{!items.length&&<div class="empty">当前没有满足共振条件的已验证跨区 Topic。</div>}</BaseLayout>

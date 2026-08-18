@@ -1,0 +1,10 @@
+---
+import TopicRow from './TopicRow.astro';
+import type { RankingRow } from '../lib/api';
+interface Props { title:string; items:RankingRow[]; note?:string; }
+const {title,items,note}=Astro.props;
+---
+<section class="ranking-section" aria-labelledby={`section-${title}`}>
+  <div class="section-head"><h2 id={`section-${title}`}>{title}</h2>{note&&<span>{note}</span>}</div>
+  {items.length?<div class="topic-list">{items.map((item,index)=><TopicRow item={item} rank={index+1}/>)}</div>:<div class="empty">暂无可用热点数据</div>}
+</section>

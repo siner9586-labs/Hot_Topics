@@ -1,0 +1,10 @@
+---
+interface Props { heat:number; delta:number|null; }
+const {heat,delta}=Astro.props;
+const points=delta==null?[heat]:[Math.max(0,heat-delta),heat];
+const min=Math.min(...points),max=Math.max(...points);const span=Math.max(1,max-min);
+const coords=points.map((p,i)=>`${points.length===1?50:(i/(points.length-1))*100},${22-((p-min)/span)*18}`).join(' ');
+---
+<svg class="spark" viewBox="0 0 100 24" role="img" aria-label={`热度趋势，当前 ${Math.round(heat)}${delta==null?'，新热点':`，较上期变化 ${delta>0?'+':''}${Math.round(delta)}`}`}>
+  {points.length>1?<polyline points={coords} fill="none" vector-effect="non-scaling-stroke"/>:<circle cx="50" cy="12" r="1.8"/>}
+</svg>

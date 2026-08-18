@@ -1,0 +1,17 @@
+---
+import '../styles/global.css';
+interface Props { title?:string; description?:string; canonicalPath?:string; noindex?:boolean; }
+const {title='Hot Topics — 全球互联网热点雷达',description='持续测量互联网注意力如何形成、扩散、跨区域传播并衰退。',canonicalPath=Astro.url.pathname,noindex=false}=Astro.props;
+const canonical=new URL(canonicalPath,Astro.site??Astro.url.origin).toString();
+---
+<!doctype html><html lang="zh-CN"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="color-scheme" content="light dark"/>
+<title>{title}</title><meta name="description" content={description}/><link rel="canonical" href={canonical}/>{noindex&&<meta name="robots" content="noindex,nofollow"/>}
+<meta property="og:title" content={title}/><meta property="og:description" content={description}/><meta property="og:type" content="website"/><meta property="og:url" content={canonical}/>
+</head><body>
+<a class="skip-link" href="#content">跳到主要内容</a>
+<header class="site-header"><div class="shell header-inner"><a class="brand" href="/"><strong>HOT TOPICS</strong><span>全球互联网热点雷达</span></a>
+<nav aria-label="主导航"><a href="/?region=CN">中国大陆</a><a href="/?region=GLOBAL">国际</a><a href="/global-resonance">全球共振</a><a href="/attention-gap">中外温差</a><a href="/history">历史</a><a href="/search">搜索</a></nav></div></header>
+<main id="content" class="shell"><slot/></main>
+<footer class="shell footer"><p>Heat 衡量互联网注意力，不是真实性评分，也不是人口民意调查。热度与证据覆盖分别呈现。</p><p><a href="/methodology">方法说明</a> · <a href="/feed/china.xml">中国 RSS</a> · <a href="/feed/global.xml">国际 RSS</a> · <a href="/feed/rising.xml">急升 RSS</a></p></footer>
+</body></html>

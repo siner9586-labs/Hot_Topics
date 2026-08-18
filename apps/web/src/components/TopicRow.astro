@@ -1,0 +1,18 @@
+---
+import Sparkline from './Sparkline.astro';
+import { deltaLabel, heat, relativeTime } from '../lib/format';
+import type { RankingRow } from '../lib/api';
+interface Props { item:RankingRow; rank:number; }
+const {item,rank}=Astro.props; const title=item.canonical_title_zh||item.canonical_title_en; const other=item.canonical_title_en&&item.canonical_title_en!==title?item.canonical_title_en:'';
+const newItem=Boolean(item.is_new);
+---
+<article class="topic-row">
+  <div class="rank" aria-label={`第 ${rank} 名`}>{String(rank).padStart(2,'0')}</div>
+  <div class="topic-main">
+    <a class="topic-title" href={`/topic/${item.slug}`}>{title}</a>
+    {other && <div class="topic-original" lang="en">{other}</div>}
+    <div class="meta"><span>{item.category}</span><span>·</span><time datetime={item.captured_at}>{relativeTime(item.captured_at)}</time><span>·</span><span>{Math.round(item.cross_platform_index)} 跨平台</span></div>
+  </div>
+  <div class="heat"><strong>🔥 {heat(item.heat)}</strong><span class:list={['delta',item.delta!=null&&item.delta>0?'up':item.delta!=null&&item.delta<0?'down':'']}>{deltaLabel(item.delta,newItem)}</span></div>
+  <Sparkline heat={Number(item.heat)} delta={item.delta==null?null:Number(item.delta)}/>
+</article>

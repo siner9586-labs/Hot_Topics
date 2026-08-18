@@ -1,0 +1,4 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+<BaseLayout title="方法说明 — Hot Topics"><article class="prose"><h1>方法说明</h1><p><strong>Heat 是 attention index，不是真实性分数。</strong>系统先在每个平台内部标准化排名、浏览/互动或搜索信号，再结合来源可靠性、跨平台覆盖、持续性与新鲜度形成 0–100 Heat。</p><h2>Heat 与 Evidence 分离</h2><p>高热度仅说明受到关注。Evidence Coverage 仅说明独立来源和新闻来源覆盖情况，也不等同于“已经证实”。</p><h2>Delta</h2><p>主界面显示当前 Heat 与上一轮 3 小时快照之差。首次出现显示 NEW，不显示夸张百分比。</p><h2>数据缺失</h2><p>来源失败时，不把缺失平台当作 0 分；可用来源重新归一化，同时降低 Coverage Confidence。详细、版本化公式见仓库 docs/METHODOLOGY.md。</p></article></BaseLayout>

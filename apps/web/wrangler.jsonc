@@ -1,0 +1,12 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hot-topics-web",
+  "main": "dist/_worker.js/index.js",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "assets": { "binding": "ASSETS", "directory": "./dist" },
+  "services": [
+    { "binding": "API", "service": "hot-topics-pipeline" }
+  ]
+}

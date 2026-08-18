@@ -1,0 +1,7 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';import {apiFetch,type ApiResult,type RankingRow} from '../lib/api';
+const [cn,g]=await Promise.all([apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=CN&limit=100'),apiFetch<ApiResult<RankingRow[]>>(Astro.locals,'/api/v1/rankings?region=GLOBAL&limit=100')]);
+const all=new Map<string,RankingRow>();for(const x of [...(cn?.data??[]),...(g?.data??[])]) all.set(x.id,x);
+const items=[...all.values()].map((x)=>({x,gap:Number(x.china_heat??0)-Number(x.global_heat??0)})).sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap)).slice(0,50);
+---
+<BaseLayout title="中外温差 — Hot Topics"><section class="page-head"><h1>中外温差</h1><p>Gap = China Heat − Global Heat。只表达注意力差异，不表达事实重要性或价值判断。</p></section><div class="gap-list">{items.map(({x,gap})=><a class="gap-row" href={`/topic/${x.slug}`}><span>{x.canonical_title_zh||x.canonical_title_en}</span><strong>{gap>12?'中国显著更热':gap<-12?'全球显著更热':'基本同步'}</strong><em>{gap>0?'+':''}{Math.round(gap)}</em></a>)}</div>{!items.length&&<div class="empty">暂无可比较的跨区数据。</div>}</BaseLayout>

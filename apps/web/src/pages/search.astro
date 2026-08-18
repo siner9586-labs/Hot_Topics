@@ -1,0 +1,5 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';import {apiFetch,type ApiResult,type RankingRow} from '../lib/api';
+const q=(Astro.url.searchParams.get('q')??'').trim();const result=q?await apiFetch<ApiResult<RankingRow[]>>(Astro.locals,`/api/v1/topics?q=${encodeURIComponent(q)}&limit=40`):null;
+---
+<BaseLayout title="搜索 — Hot Topics" noindex={!q}><section class="page-head"><h1>搜索 Topic</h1><form class="search-form"><label for="q">中英文标题、人物、公司或事件</label><div><input id="q" name="q" value={q} autocomplete="off"/><button>搜索</button></div></form></section>{q&&<section><p class="result-count">“{q}” 的结果：{result?.data.length??0}</p><div class="search-results">{(result?.data??[]).map((x)=><a href={`/topic/${x.slug}`}><strong>{x.canonical_title_zh||x.canonical_title_en}</strong><span>{x.category} · CN {Math.round(Number(x.china_heat))} / GLOBAL {Math.round(Number(x.global_heat))}</span></a>)}</div></section>}</BaseLayout>
