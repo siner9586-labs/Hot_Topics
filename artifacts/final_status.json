@@ -1,0 +1,16 @@
+{
+  "status": "PARTIAL",
+  "head_sha": "PENDING_VERIFICATION",
+  "real_data": false,
+  "china_sources_working": 0,
+  "global_sources_working": 0,
+  "pipeline_verified": false,
+  "scoring_verified": false,
+  "clustering_verified": false,
+  "tests_passed": false,
+  "build_passed": false,
+  "ci_passed": false,
+  "deployment_verified": false,
+  "production_url": null,
+  "known_blockers": ["CI_NOT_RUN_YET", "DEPLOYMENT_BLOCKED_BY_EXTERNAL_AUTH"]
+}
