@@ -1,3 +1,5 @@
+import { env } from 'cloudflare:workers';
+
 export interface ApiResult<T> { data:T; generated_at?:string; region?:string; mode?:string; }
 export interface RankingRow {
   id:string; slug:string; canonical_title_zh:string; canonical_title_en:string; category:string; first_seen_at:string; last_seen_at:string;
@@ -6,18 +8,18 @@ export interface RankingRow {
 }
 export interface TopicDetail extends RankingRow { history:Array<Record<string,any>>; sources:Array<Record<string,any>>; }
 
-export async function apiFetch<T>(locals:any,path:string):Promise<T|null>{
-  const service=locals?.runtime?.env?.API;
-  if(service?.fetch){
+export async function apiFetch<T>(_locals:any,path:string):Promise<T|null>{
+  const explicitOrigin=import.meta.env.PUBLIC_API_ORIGIN;
+  if(explicitOrigin){
     try{
-      const response=await service.fetch(new Request(`https://pipeline.internal${path}`));
+      const response=await fetch(`${explicitOrigin}${path}`);
       if(response.ok) return await response.json() as T;
-    }catch{/* fall through only when an explicit public/test API origin exists */}
+    }catch{/* production binding remains the fallback */}
   }
-  const origin=import.meta.env.PUBLIC_API_ORIGIN;
-  if(!origin) return null;
   try{
-    const response=await fetch(`${origin}${path}`);
+    const service=(env as any)?.API;
+    if(!service?.fetch) return null;
+    const response=await service.fetch(new Request(`https://pipeline.internal${path}`));
     if(!response.ok) return null;
     return await response.json() as T;
   }catch{return null;}
