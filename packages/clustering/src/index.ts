@@ -26,8 +26,10 @@ export function normalizeTitle(input: string): string {
     .replace(/\s+/g, ' ')
     .trim();
   for (const [alias, canonical] of Object.entries(ALIASES)) {
-    text = text.replace(new RegExp(`(^|\\s)${escapeRegExp(alias)}(?=\\s|$)`, 'gi'), `$1${canonical}`);
+    if (/\p{Script=Han}/u.test(alias)) text = text.replaceAll(alias, ` ${canonical} `);
+    else text = text.replace(new RegExp(`(^|\\s)${escapeRegExp(alias)}(?=\\s|$)`, 'gi'), `$1${canonical}`);
   }
+  text = text.replace(/\s+/g, ' ').trim();
   return text;
 }
 
@@ -83,6 +85,7 @@ export function lexicalSimilarity(a: string, b: string): number {
   const aNorm = normalizeTitle(a); const bNorm = normalizeTitle(b);
   const containment = aNorm.includes(bNorm) || bNorm.includes(aNorm) ? 1 : 0;
   let score = 0.52 * tokenScore + 0.38 * charScore + 0.10 * containment;
+  if (tokenScore >= 0.95) score = Math.max(score, 0.94);
   const numsA = extractNumbers(a); const numsB = extractNumbers(b);
   if (numsA.length && numsB.length && jaccard(numsA, numsB) === 0) score -= CLUSTERING_THRESHOLDS.numericConflictPenalty;
   const datesA = extractDateTokens(a); const datesB = extractDateTokens(b);
