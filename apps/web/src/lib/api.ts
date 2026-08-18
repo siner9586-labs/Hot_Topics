@@ -1,3 +1,5 @@
+import { env } from 'cloudflare:workers';
+
 export interface ApiResult<T> { data:T; generated_at?:string; region?:string; mode?:string; }
 export interface RankingRow {
   id:string; slug:string; canonical_title_zh:string; canonical_title_en:string; category:string; first_seen_at:string; last_seen_at:string;
@@ -6,10 +8,18 @@ export interface RankingRow {
 }
 export interface TopicDetail extends RankingRow { history:Array<Record<string,any>>; sources:Array<Record<string,any>>; }
 
-export async function apiFetch<T>(locals:any,path:string):Promise<T|null>{
+export async function apiFetch<T>(_locals:any,path:string):Promise<T|null>{
+  const explicitOrigin=import.meta.env.PUBLIC_API_ORIGIN;
+  if(explicitOrigin){
+    try{
+      const response=await fetch(`${explicitOrigin}${path}`);
+      if(response.ok) return await response.json() as T;
+    }catch{/* production binding remains the fallback */}
+  }
   try{
-    const service=locals?.runtime?.env?.API;
-    const response=service?.fetch ? await service.fetch(new Request(`https://pipeline.internal${path}`)) : await fetch(`${import.meta.env.PUBLIC_API_ORIGIN || 'http://127.0.0.1:8787'}${path}`);
+    const service=(env as any)?.API;
+    if(!service?.fetch) return null;
+    const response=await service.fetch(new Request(`https://pipeline.internal${path}`));
     if(!response.ok) return null;
     return await response.json() as T;
   }catch{return null;}

@@ -1,16 +1,19 @@
 {
-  "status": "PARTIAL",
-  "head_sha": "PENDING_VERIFICATION",
-  "real_data": false,
-  "china_sources_working": 0,
-  "global_sources_working": 0,
-  "pipeline_verified": false,
-  "scoring_verified": false,
-  "clustering_verified": false,
-  "tests_passed": false,
-  "build_passed": false,
-  "ci_passed": false,
+  "status": "DEPLOYMENT_READY",
+  "head_sha": "b24e99b0435f49ac2938d9eb16e91c4276bc1beb",
+  "real_data": true,
+  "china_sources_working": 2,
+  "global_sources_working": 3,
+  "pipeline_verified": true,
+  "scoring_verified": true,
+  "clustering_verified": true,
+  "tests_passed": true,
+  "build_passed": true,
+  "ci_passed": true,
   "deployment_verified": false,
   "production_url": null,
-  "known_blockers": ["CI_NOT_RUN_YET", "DEPLOYMENT_BLOCKED_BY_EXTERNAL_AUTH"]
+  "known_blockers": [
+    "DEPLOYMENT_BLOCKED_BY_EXTERNAL_AUTH_OR_CONNECTOR_CAPABILITY",
+    "SOURCE_TARGET_CN_3_GLOBAL_4_NOT_MET"
+  ]
 }

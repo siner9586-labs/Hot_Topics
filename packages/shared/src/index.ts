@@ -70,7 +70,10 @@ export function decodeXmlEntities(input: string): string {
 }
 
 export function stripTags(input: string): string {
-  return decodeXmlEntities(input.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
+  // Decode CDATA/XML entities before stripping markup. Stripping first would
+  // treat an entire <![CDATA[...]]> payload as an HTML-like tag and erase
+  // valid RSS titles used by feeds such as BBC and People's Daily.
+  return decodeXmlEntities(input).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
 export interface StructuredLog {

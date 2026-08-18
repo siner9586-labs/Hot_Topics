@@ -1,6 +1,6 @@
 {
   "name":"@hot-topics/web","version":"1.0.0","private":true,"type":"module",
   "scripts":{"dev":"astro dev","build":"astro build","preview":"astro preview","deploy":"wrangler deploy"},
-  "dependencies":{"@astrojs/cloudflare":"14.1.6","astro":"7.1.6"},
+  "dependencies":{"@astrojs/cloudflare":"14.2.1","astro":"7.2.2"},
   "devDependencies":{"wrangler":"4.123.0"}
 }
