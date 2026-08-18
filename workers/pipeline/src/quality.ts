@@ -2,7 +2,7 @@ import type { RawHotItem, SourceAdapter, SourceStatus } from '@hot-topics/core';
 
 export interface QualityResult { accepted:RawHotItem[]; status:SourceStatus; warnings:string[]; duplicateRate:number; nullTitleRate:number; }
 
-export function applyQualityGate(adapter:SourceAdapter,items:RawHotItem[]):QualityResult{
+export function applyQualityGate(_adapter:SourceAdapter,items:RawHotItem[]):QualityResult{
   const warnings:string[]=[];
   if(!items.length) return {accepted:[],status:'degraded',warnings:['zero_items'],duplicateRate:0,nullTitleRate:1};
   const titleMissing=items.filter((i)=>!i.title.trim()).length;

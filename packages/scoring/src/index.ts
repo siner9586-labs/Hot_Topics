@@ -12,11 +12,18 @@ export function rankDecay(rank: number, listSize = 50): number {
 
 export function percentileRanks(values: number[]): number[] {
   if (values.length === 0) return [];
+  if (values.length === 1) return [100];
   const indexed = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
   const result = Array<number>(values.length).fill(0);
-  indexed.forEach((entry, rank) => {
-    result[entry.index] = values.length === 1 ? 100 : (rank / (values.length - 1)) * 100;
-  });
+  let i = 0;
+  while (i < indexed.length) {
+    let j = i + 1;
+    while (j < indexed.length && indexed[j]!.value === indexed[i]!.value) j += 1;
+    const averageRank = (i + j - 1) / 2;
+    const percentile = (averageRank / (values.length - 1)) * 100;
+    for (let k = i; k < j; k += 1) result[indexed[k]!.index] = percentile;
+    i = j;
+  }
   return result;
 }
 
