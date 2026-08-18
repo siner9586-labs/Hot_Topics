@@ -7,9 +7,17 @@ export interface RankingRow {
 export interface TopicDetail extends RankingRow { history:Array<Record<string,any>>; sources:Array<Record<string,any>>; }
 
 export async function apiFetch<T>(locals:any,path:string):Promise<T|null>{
+  const service=locals?.runtime?.env?.API;
+  if(service?.fetch){
+    try{
+      const response=await service.fetch(new Request(`https://pipeline.internal${path}`));
+      if(response.ok) return await response.json() as T;
+    }catch{/* fall through only when an explicit public/test API origin exists */}
+  }
+  const origin=import.meta.env.PUBLIC_API_ORIGIN;
+  if(!origin) return null;
   try{
-    const service=locals?.runtime?.env?.API;
-    const response=service?.fetch ? await service.fetch(new Request(`https://pipeline.internal${path}`)) : await fetch(`${import.meta.env.PUBLIC_API_ORIGIN || 'http://127.0.0.1:8787'}${path}`);
+    const response=await fetch(`${origin}${path}`);
     if(!response.ok) return null;
     return await response.json() as T;
   }catch{return null;}
