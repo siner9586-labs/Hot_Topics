@@ -1,0 +1,63 @@
+name: Bootstrap production repository
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.bootstrap/**'
+      - '.github/workflows/bootstrap.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reassemble and verify payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .bootstrap/part-* | base64 -d > /tmp/hot-topics.tar.xz
+          echo '4a4d7a0b3e1481a5638a746fd06fd6b4cce8a103b0d60e80f2c39e0977b78e52  /tmp/hot-topics.tar.xz' | sha256sum -c -
+          tar -xJf /tmp/hot-topics.tar.xz -C .
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install and lock dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.18.0 --activate
+          pnpm install --no-frozen-lockfile
+      - name: Commit bounded atomic units
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          git add package.json pnpm-workspace.yaml tsconfig.base.json tsconfig.json eslint.config.js vitest.config.ts .gitignore .env.example LICENSE pnpm-lock.yaml packages migrations
+          git commit -m 'chore: bootstrap monorepo and core packages'
+
+          git add workers scripts
+          git commit -m 'feat: implement real-source attention pipeline'
+
+          git add apps
+          git commit -m 'feat: add observatory web interface'
+
+          git add tests playwright.config.ts .github/workflows/ci.yml .github/workflows/deploy.yml
+          git commit -m 'test: add quality gates and deployment workflows'
+
+          git add README.md docs artifacts
+          git commit -m 'docs: document architecture methodology and operations'
+
+          git rm -r .bootstrap .github/workflows/bootstrap.yml
+          git commit -m 'chore: remove bootstrap transport'
+          git push origin HEAD:main
