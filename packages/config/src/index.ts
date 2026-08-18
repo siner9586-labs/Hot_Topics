@@ -32,6 +32,7 @@ export const SOURCE_DEFAULTS = Object.freeze({
   baidu: true,
   kr36: true,
   people: true,
+  chinanews: true,
   hackernews: true,
   wikimedia: true,
   bbc: true,
@@ -46,6 +47,7 @@ export interface FeatureFlags {
   baidu: boolean;
   kr36: boolean;
   people: boolean;
+  chinanews: boolean;
   hackernews: boolean;
   wikimedia: boolean;
   bbc: boolean;
@@ -61,6 +63,7 @@ export function featureFlags(env: Record<string, string | undefined> = {}): Feat
     baidu: parseBoolean(env.SOURCE_BAIDU_ENABLED, SOURCE_DEFAULTS.baidu),
     kr36: parseBoolean(env.SOURCE_36KR_ENABLED, SOURCE_DEFAULTS.kr36),
     people: parseBoolean(env.SOURCE_PEOPLE_ENABLED, SOURCE_DEFAULTS.people),
+    chinanews: parseBoolean(env.SOURCE_CHINANEWS_ENABLED, SOURCE_DEFAULTS.chinanews),
     hackernews: parseBoolean(env.SOURCE_HN_ENABLED, SOURCE_DEFAULTS.hackernews),
     wikimedia: parseBoolean(env.SOURCE_WIKIMEDIA_ENABLED, SOURCE_DEFAULTS.wikimedia),
     bbc: parseBoolean(env.SOURCE_BBC_ENABLED, SOURCE_DEFAULTS.bbc),
