@@ -94,6 +94,9 @@ jobs:
           echo "ADMIN_RUN_TOKEN=$ADMIN_RUN_TOKEN" >> "$GITHUB_ENV"
           printf '%s' "$ADMIN_RUN_TOKEN" | pnpm --dir workers/pipeline exec wrangler secret put ADMIN_RUN_TOKEN
 
+      - name: Re-deploy pipeline after run-token rotation
+        run: pnpm --dir workers/pipeline exec wrangler deploy --x-provision
+
       - name: Resolve production pipeline URL
         shell: bash
         run: |
@@ -145,11 +148,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            -H "Authorization: Bearer $ADMIN_RUN_TOKEN" \
-            "$PIPELINE_URL/admin/run-now" \
-            -o /tmp/run-now.json
+          accepted=0
+          for attempt in $(seq 1 12); do
+            http_code="$(curl --silent --show-error \
+              --request POST \
+              -H "Authorization: Bearer $ADMIN_RUN_TOKEN" \
+              "$PIPELINE_URL/admin/run-now" \
+              -o /tmp/run-now.json \
+              -w '%{http_code}' || true)"
+            if [ "$http_code" = '202' ]; then
+              accepted=1
+              break
+            fi
+            echo "Production trigger not ready yet (HTTP $http_code, attempt $attempt/12)."
+            sleep 2
+          done
+          if [ "$accepted" -ne 1 ]; then
+            echo '::error::Production run endpoint did not accept the protected trigger after bounded retries.'
+            cat /tmp/run-now.json 2>/dev/null || true
+            exit 1
+          fi
           python - <<'PY' > /tmp/run-id.txt
           import json
           from pathlib import Path
@@ -184,7 +202,6 @@ jobs:
               -o /tmp/run-status.json; then
               if python - <<'PY'
           import json
-          import sys
           from pathlib import Path
           payload=json.loads(Path('/tmp/run-status.json').read_text())
           run=payload.get('run') or {}
