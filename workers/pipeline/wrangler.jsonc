@@ -34,13 +34,24 @@
     "SOURCE_BAIDU_ENABLED": "true",
     "SOURCE_36KR_ENABLED": "true",
     "SOURCE_PEOPLE_ENABLED": "true",
+    "SOURCE_CHINANEWS_ENABLED": "true",
+    "SOURCE_TOUTIAO_ENABLED": "true",
+    "SOURCE_BILIBILI_ENABLED": "true",
     "SOURCE_HN_ENABLED": "true",
     "SOURCE_WIKIMEDIA_ENABLED": "true",
     "SOURCE_BBC_ENABLED": "true",
+    "SOURCE_GOOGLE_NEWS_ENABLED": "true",
+    "SOURCE_GUARDIAN_ENABLED": "true",
+    "SOURCE_NYTIMES_ENABLED": "true",
+    "SOURCE_ALJAZEERA_ENABLED": "true",
     "SOURCE_GDELT_ENABLED": "false",
     "SOURCE_YOUTUBE_ENABLED": "false",
     "SOURCE_ZHIHU_ENABLED": "false",
     "SOURCE_WEIBO_ENABLED": "false",
-    "SOURCE_GOOGLE_TRENDS_ENABLED": "false"
+    "SOURCE_DOUYIN_ENABLED": "false",
+    "SOURCE_GOOGLE_TRENDS_ENABLED": "false",
+    "SOURCE_REDDIT_ENABLED": "false",
+    "SOURCE_X_ENABLED": "false",
+    "SOURCE_TIKTOK_ENABLED": "false"
   }
 }
