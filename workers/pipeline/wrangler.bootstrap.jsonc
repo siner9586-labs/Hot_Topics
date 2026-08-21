@@ -1,0 +1,30 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "hot-topics-pipeline-bootstrap",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-18",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "hot-topics",
+      "database_id": "1a39041d-4f3b-4cea-b929-6006fa6299ce",
+      "remote": true,
+      "migrations_dir": "../../migrations"
+    }
+  ],
+  "vars": {
+    "LLM_BUDGET_PER_RUN": "8",
+    "SOURCE_BAIDU_ENABLED": "true",
+    "SOURCE_36KR_ENABLED": "true",
+    "SOURCE_PEOPLE_ENABLED": "true",
+    "SOURCE_HN_ENABLED": "true",
+    "SOURCE_WIKIMEDIA_ENABLED": "true",
+    "SOURCE_BBC_ENABLED": "true",
+    "SOURCE_GDELT_ENABLED": "false",
+    "SOURCE_YOUTUBE_ENABLED": "false",
+    "SOURCE_ZHIHU_ENABLED": "false",
+    "SOURCE_WEIBO_ENABLED": "false",
+    "SOURCE_GOOGLE_TRENDS_ENABLED": "false"
+  }
+}
