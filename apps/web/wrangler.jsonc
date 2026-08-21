@@ -8,5 +8,8 @@
   "assets": { "binding": "ASSETS", "directory": "./dist" },
   "services": [
     { "binding": "API", "service": "hot-topics-pipeline" }
+  ],
+  "routes": [
+    { "pattern": "hots.ccwu.cc", "custom_domain": true }
   ]
 }
