@@ -1,38 +1,53 @@
 # Handoff
 
-A fresh worker should read, in order: `README.md`, `docs/ARCHITECTURE.md`, `docs/EXECUTION_STATE.md`, `docs/FINAL_REPORT.md`, this file, then only files implicated by the next deployment/source task.
+A fresh worker should read, in order: `README.md`, `docs/ARCHITECTURE.md`, `docs/EXECUTION_STATE.md`, `docs/FINAL_REPORT.md`, `artifacts/final_status.json`, this file, then only files implicated by the next bounded task.
 
 ## Verified checkpoint — 2026-08-21
 
-- Current readiness: `DEPLOYMENT_READY`
-- Verified deployment-config SHA: `3c2bff50d2068721882bf332ea99d58af07d5dd0`
-- Full CI run `32458536320` / #29: success
-- lint/typecheck/18 tests/build/security/dependency-audit/real-data-smoke/visual: pass
-- Wrangler aligned to `4.125.0` for the current Cloudflare Vite peer requirement
-- Cloudflare production workflow is enabled on relevant `main` pushes and manual dispatch
-- Deployment status is mirrored to the commit context `cloudflare/production`
+- Repository: `siner9586-labs/Hot_Topics`
+- Current status: `PRODUCTION_DEPLOYED_PENDING_FIRST_CRON`
+- Verified deployment SHA: `5ded5a2289c7e5b7b6c1fcd95e09851d7921542a`
+- Cloudflare deployment + public HTTP smoke run: `32495169844` — success
+- Full prior quality CI: success
+- Organization-level Cloudflare credential inheritance: verified
+- Cloudflare Account API Token authentication: verified
 
-## Last real production attempt
+## Verified production resources
 
-GitHub Actions run `32458919022` reached the explicit Cloudflare credential gate and failed because both required inputs are absent:
+- Web Worker: `https://hot-topics-web.zz9w9z.workers.dev`
+- Pipeline Worker/API: `https://hot-topics-pipeline.zz9w9z.workers.dev`
+- D1: `hot-topics` (`1a39041d-4f3b-4cea-b929-6006fa6299ce`)
+- Queue: `hot-topics-pipeline`
+- DLQ: `hot-topics-pipeline-dlq`
+- Cron: `0 1,4,7,10,13,16,19,22 * * *` UTC
+- Web service binding: `API -> hot-topics-pipeline`
+- Astro session KV: provisioned
 
-- `CLOUDFLARE_API_TOKEN` — missing from GitHub Actions secrets
-- `CLOUDFLARE_ACCOUNT_ID` — missing from GitHub Actions secret/repository variable
+## Verified production behavior
 
-No Cloudflare write step ran after that failure. Do not claim D1, Queues, Workers, Cron triggers, workers.dev hostname, custom domain, or a production URL as deployed yet.
+The deployment workflow has successfully verified over real public HTTP:
 
-## Next bounded task
+- pipeline `/health`
+- pipeline `/api/v1/topics?limit=3`
+- web `/` rendered HTML
 
-After the owner configures the two GitHub Actions values above, trigger `Deploy Cloudflare` again (or make a relevant `main` push). The workflow is already prepared to:
+The post-deploy HTTP checks are now permanent in `.github/workflows/deploy.yml`.
 
-1. verify Cloudflare authentication;
-2. ensure `hot-topics-pipeline` and `hot-topics-pipeline-dlq` Queues;
-3. provision/bind the `hot-topics` D1 database;
-4. deploy the pipeline Worker and its UTC 3-hour Cron schedule;
-5. apply D1 migrations and re-deploy;
-6. build/deploy the Astro web Worker with the `API -> hot-topics-pipeline` service binding;
-7. list Cloudflare deployment records for auditability.
+## Deliberately unresolved gate
 
-Only change the machine-readable status to `PRODUCTION_DEPLOYED` after the workflow succeeds and HTTP checks confirm the homepage, `/api/v1`, topic routes and health/status endpoints. Configure a custom domain only after a real Worker deployment exists and the desired hostname is explicitly known.
+Immediately after first deployment, production D1 was empty: topic/raw/snapshot counts were all zero and `last_run` was null. The deployment occurred between Cron windows, so the scheduled handler had not yet executed.
 
-Independently, restore compliant source breadth to at least CN 3 / GLOBAL 4 without bypassing login, CAPTCHA, anti-bot or ToS restrictions.
+Do not fake or manually fabricate a successful scheduled cycle. Cloudflare documents manual scheduled-handler invocation as a local development facility. No temporary one-minute production schedule was installed.
+
+Next bounded verification after the first real Cron event:
+
+1. read `/health` and require a non-null `last_run`;
+2. require non-zero raw/topic/snapshot counts if compliant public sources returned data;
+3. inspect source health and Queue processing outcome;
+4. verify `/api/v1/topics` returns real production topics;
+5. verify the web ranking renders those topics through the service binding;
+6. if all pass, set `artifacts/final_status.json` to `PRODUCTION_DEPLOYED`.
+
+## Independent source breadth work
+
+Current compliant working-source breadth remains CN 2 / GLOBAL 3 versus the preferred CN >=3 / GLOBAL >=4 target. Continue source restoration/replacement without bypassing login, CAPTCHA, challenge pages, anti-bot controls or provider terms.
