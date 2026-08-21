@@ -1,12 +1,13 @@
 import { collectAll, createAdapters } from '@hot-topics/adapters';
-import type { PipelineRunReport, SourceRunResult } from '@hot-topics/core';
-import { healthSummary, insertRawItems, listRankings, recordSourceRun, searchTopics, setRunStatus, sourceHealth, startSystemRun, topicBySlug, topicHistory, topicSources, upsertSource } from '@hot-topics/db';
+import type { PipelineRunReport, Region, SourceRunResult } from '@hot-topics/core';
+import { healthSummary, insertRawItems, listRankings, recordSourceRun, runSnapshotCounts, searchTopics, setRunStatus, sourceHealth, startSystemRun, topicBySlug, topicHistory, topicSources, upsertSource } from '@hot-topics/db';
 import { createLogger } from '@hot-topics/shared';
 import { processRun } from './process.ts';
 import { applyQualityGate } from './quality.ts';
 import type { ExecutionContext, MessageBatch, ProcessRunMessage, ScheduledController, ServiceEnv } from './runtime-types.ts';
 
 const log=createLogger();
+const REGIONS:Region[]=['CN','GLOBAL'];
 function envRecord(env:ServiceEnv):Record<string,string|undefined>{ return env as unknown as Record<string,string|undefined>; }
 function json(data:unknown,status=200,cache='public, max-age=60, s-maxage=180'){
   return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':cache,'access-control-allow-origin':'*','x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'}});
@@ -14,6 +15,19 @@ function json(data:unknown,status=200,cache='public, max-age=60, s-maxage=180'){
 function runIdFor(timestamp:number,prefix='run'):string{ return `${prefix}_${new Date(timestamp).toISOString().replace(/[-:.TZ]/g,'').slice(0,14)}`; }
 function bearer(request:Request):string{ return request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')??''; }
 function adminAuthorized(request:Request,env:ServiceEnv):boolean{ return Boolean(env.ADMIN_RUN_TOKEN)&&bearer(request)===env.ADMIN_RUN_TOKEN; }
+function publishStatus(sourceStatuses:Record<string,string>):'PUBLISHED'|'PARTIAL'{
+  return Object.values(sourceStatuses).some((s)=>!['healthy','degraded','disabled','auth_required','requires_access'].includes(s))?'PARTIAL':'PUBLISHED';
+}
+async function finalizeIfBothRegions(db:ServiceEnv['DB'],message:ProcessRunMessage,result:Record<string,unknown>):Promise<boolean>{
+  const counts=await runSnapshotCounts(db,message.runId);
+  if(counts.CN>0&&counts.GLOBAL>0){
+    const status=publishStatus(message.sourceStatuses);
+    await setRunStatus(db,message.runId,status,new Date().toISOString(),{...result,region_counts:counts,sourceStatuses:message.sourceStatuses});
+    return true;
+  }
+  await setRunStatus(db,message.runId,'PROCESSING',new Date().toISOString(),{...result,region_counts:counts,awaiting_region:counts.CN>0?'GLOBAL':'CN'});
+  return false;
+}
 
 async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Promise<PipelineRunReport>{
   await startSystemRun(env.DB,runId,capturedAt); await setRunStatus(env.DB,runId,'COLLECTING',new Date().toISOString());
@@ -35,9 +49,17 @@ async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Pr
   }
   const active=sourceResults.filter((r)=>r.status!=='disabled'&&r.status!=='auth_required'&&r.status!=='requires_access');
   const failed=active.filter((r)=>!['healthy','degraded'].includes(r.status)); const collectionStatus=active.length===0?'FAILED':failed.length?'PARTIAL':'PUBLISHED';
-  const message:ProcessRunMessage={type:'PROCESS_RUN',runId,capturedAt,expectedWeightByRegion:expected,availableWeightByRegion:available,sourceStatuses:Object.fromEntries(sourceResults.map((r)=>[r.sourceId,r.status]))};
-  try { await env.PIPELINE_QUEUE.send(message); }
-  catch(error){ log({run_id:runId,stage:'queue',status:'fallback_direct',detail:error instanceof Error?error.message:'queue_error'}); const processed=await processRun(env.DB,message); await setRunStatus(env.DB,runId,collectionStatus,new Date().toISOString(),{...processed,sourceStatuses:message.sourceStatuses}); }
+  const sourceStatuses=Object.fromEntries(sourceResults.map((r)=>[r.sourceId,r.status]));
+  await setRunStatus(env.DB,runId,'PROCESSING',new Date().toISOString(),{queued_regions:REGIONS});
+  for(const region of REGIONS){
+    const message:ProcessRunMessage={type:'PROCESS_RUN',runId,capturedAt,region,expectedWeightByRegion:expected,availableWeightByRegion:available,sourceStatuses};
+    try { await env.PIPELINE_QUEUE.send(message); }
+    catch(error){
+      log({run_id:runId,region,stage:'queue',status:'fallback_direct',detail:error instanceof Error?error.message:'queue_error'});
+      const processed=await processRun(env.DB,message);
+      await finalizeIfBothRegions(env.DB,message,processed);
+    }
+  }
   return {runId,status:collectionStatus,startedAt:capturedAt,finishedAt:new Date().toISOString(),sources:sourceResults,rawItemCount,topicCount:0,snapshotCount:0};
 }
 
@@ -76,10 +98,9 @@ async function handleRunStatus(request:Request,env:ServiceEnv):Promise<Response>
   if(!runId) return json({error:'run_id_required'},400,'no-store');
   const run=await env.DB.prepare(`SELECT id,status,started_at,updated_at,detail_json FROM system_runs WHERE id=? LIMIT 1`).bind(runId).first<Record<string,unknown>>();
   if(!run) return json({error:'run_not_found'},404,'no-store');
-  const regionResult=await env.DB.prepare(`SELECT region,COUNT(*) snapshot_count FROM topic_snapshots WHERE run_id=? GROUP BY region`).bind(runId).all<Record<string,unknown>>();
+  const counts=await runSnapshotCounts(env.DB,runId);
   const sourceResult=await env.DB.prepare(`SELECT source_id,status,item_count,duration_ms,error_code,detail FROM source_runs WHERE run_id=? ORDER BY source_id`).bind(runId).all<Record<string,unknown>>();
-  const regionCounts=Object.fromEntries((regionResult.results??[]).map((row)=>[String(row.region),Number(row.snapshot_count??0)]));
-  return json({run,region_counts:{CN:Number(regionCounts.CN??0),GLOBAL:Number(regionCounts.GLOBAL??0)},sources:sourceResult.results??[]},200,'no-store');
+  return json({run,region_counts:counts,sources:sourceResult.results??[]},200,'no-store');
 }
 
 export default {
@@ -98,9 +119,17 @@ export default {
   },
   async scheduled(controller:ScheduledController,env:ServiceEnv,ctx:ExecutionContext):Promise<void>{ const capturedAt=new Date(controller.scheduledTime).toISOString(); const runId=runIdFor(controller.scheduledTime); ctx.waitUntil(collectAndQueue(env,runId,capturedAt)); },
   async queue(batch:MessageBatch<ProcessRunMessage>,env:ServiceEnv):Promise<void>{
-    for(const message of batch.messages){ try{ const result=await processRun(env.DB,message.body); const statuses=Object.values(message.body.sourceStatuses); const publishStatus=statuses.some((s)=>!['healthy','degraded','disabled','auth_required','requires_access'].includes(s))?'PARTIAL':'PUBLISHED';
-        await setRunStatus(env.DB,message.body.runId,publishStatus,new Date().toISOString(),result); message.ack(); log({run_id:message.body.runId,stage:'publish',status:publishStatus,...result}); }
-      catch(error){ log({run_id:message.body.runId,stage:'process',status:'retry',detail:error instanceof Error?error.message:'unknown_error'}); message.retry({delaySeconds:60}); } }
+    for(const message of batch.messages){
+      try{
+        const result=await processRun(env.DB,message.body);
+        const finalized=await finalizeIfBothRegions(env.DB,message.body,result);
+        message.ack();
+        log({run_id:message.body.runId,region:message.body.region,stage:'publish',status:finalized?publishStatus(message.body.sourceStatuses):'REGION_COMPLETE',...result});
+      } catch(error){
+        log({run_id:message.body.runId,region:message.body.region,stage:'process',status:'retry',detail:error instanceof Error?error.message:'unknown_error'});
+        message.retry({delaySeconds:60});
+      }
+    }
   }
 };
 
