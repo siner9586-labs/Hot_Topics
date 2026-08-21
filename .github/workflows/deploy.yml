@@ -1,3 +1,4 @@
+# Organization deployment trigger: 2026-08-21
 name: Deploy Cloudflare
 
 on:
