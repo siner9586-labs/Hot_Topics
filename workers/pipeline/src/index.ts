@@ -1,6 +1,6 @@
 import { collectAll, createAdapters } from '@hot-topics/adapters';
 import type { PipelineRunReport, SourceRunResult } from '@hot-topics/core';
-import { healthSummary, insertRawItems, listRankings, recordSourceRun, searchTopics, setRunStatus, sourceHealth, startSystemRun, topicBySlug, topicHistory, topicSources } from '@hot-topics/db';
+import { healthSummary, insertRawItems, listRankings, recordSourceRun, searchTopics, setRunStatus, sourceHealth, startSystemRun, topicBySlug, topicHistory, topicSources, upsertSource } from '@hot-topics/db';
 import { createLogger } from '@hot-topics/shared';
 import { processRun } from './process.ts';
 import { applyQualityGate } from './quality.ts';
@@ -16,6 +16,9 @@ function runIdFor(timestamp:number):string{ return `run_${new Date(timestamp).to
 async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Promise<PipelineRunReport>{
   await startSystemRun(env.DB,runId,capturedAt); await setRunStatus(env.DB,runId,'COLLECTING',new Date().toISOString());
   const adapters=createAdapters(envRecord(env)); const expected={CN:0,GLOBAL:0}; const available={CN:0,GLOBAL:0};
+  // A cold production database has strict foreign keys from raw_items/source_runs/source_health to sources.
+  // Register the complete source catalog before any collected item can be persisted.
+  await Promise.all(adapters.map((adapter)=>upsertSource(env.DB,adapter)));
   for(const a of adapters.filter((x)=>x.enabled)) expected[a.region]+=a.reliabilityWeight;
   const results=await collectAll(adapters,{runId,retrievedAt:capturedAt,env:envRecord(env)});
   const sourceResults:SourceRunResult[]=[]; let rawItemCount=0;
