@@ -10,6 +10,7 @@ on:
       - 'workers/**'
       - 'packages/**'
       - 'migrations/**'
+      - 'scripts/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
@@ -84,11 +85,23 @@ jobs:
       - name: Re-deploy pipeline after schema migration
         run: pnpm --dir workers/pipeline exec wrangler deploy --x-provision
 
+      - name: Prepare hots.ccwu.cc for Worker Custom Domain
+        run: python scripts/cloudflare_custom_domain.py prepare
+
       - name: Build web
         run: pnpm --dir apps/web build
 
-      - name: Deploy web Worker
+      - name: Deploy web Worker and Custom Domain
+        id: deploy_web
         run: pnpm --dir apps/web exec wrangler deploy
+
+      - name: Restore prior DNS if Custom Domain deployment fails
+        if: failure() && steps.deploy_web.outcome == 'failure'
+        continue-on-error: true
+        run: python scripts/cloudflare_custom_domain.py restore
+
+      - name: Verify Worker Custom Domain attachment
+        run: python scripts/cloudflare_custom_domain.py verify
 
       - name: Verify Cloudflare deployment records
         shell: bash
@@ -102,21 +115,114 @@ jobs:
           set -euo pipefail
           PIPELINE_URL='https://hot-topics-pipeline.zz9w9z.workers.dev'
           WEB_URL='https://hot-topics-web.zz9w9z.workers.dev'
-          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$PIPELINE_URL/health" -o /tmp/health.json
-          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$PIPELINE_URL/api/v1/topics?limit=3" -o /tmp/topics.json
-          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$WEB_URL/" -o /tmp/index.html
+          CUSTOM_URL='https://hots.ccwu.cc'
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$PIPELINE_URL/health" -o /tmp/health.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$PIPELINE_URL/api/v1/topics?limit=3" -o /tmp/topics.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$WEB_URL/" -o /tmp/index-worker.html
+          curl --fail-with-body --silent --show-error --retry 30 --retry-delay 4 --retry-all-errors "$CUSTOM_URL/" -o /tmp/index-custom.html
           python - <<'PY'
           import json
           from pathlib import Path
           health=json.loads(Path('/tmp/health.json').read_text())
           topics=json.loads(Path('/tmp/topics.json').read_text())
-          html=Path('/tmp/index.html').read_text()
+          worker_html=Path('/tmp/index-worker.html').read_text()
+          custom_html=Path('/tmp/index-custom.html').read_text()
           assert isinstance(health, dict), health
           assert isinstance(topics, dict) and isinstance(topics.get('data'), list), topics
-          assert '<html' in html.lower() and len(html) > 500, 'web response did not look like rendered HTML'
-          print('HEALTH:', json.dumps(health, ensure_ascii=False)[:1000])
+          assert '<html' in worker_html.lower() and len(worker_html) > 500, 'workers.dev response did not look like rendered HTML'
+          assert '<html' in custom_html.lower() and len(custom_html) > 500, 'custom-domain response did not look like rendered HTML'
+          print('HEALTH_COUNTS:', {k: health.get(k) for k in ('topic_count','raw_item_count','snapshot_count')})
           print('TOPIC_COUNT_SAMPLE:', len(topics['data']))
-          print('WEB_BYTES:', len(html.encode()))
+          print('WORKER_WEB_BYTES:', len(worker_html.encode()))
+          print('CUSTOM_WEB_BYTES:', len(custom_html.encode()))
+          PY
+
+      - name: Bootstrap first production collection when database is empty
+        timeout-minutes: 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          PIPELINE_URL='https://hot-topics-pipeline.zz9w9z.workers.dev'
+          curl --fail-with-body --silent --show-error "$PIPELINE_URL/health" -o /tmp/pre-bootstrap-health.json
+          if python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/pre-bootstrap-health.json').read_text())
+          raise SystemExit(0 if int(h.get('topic_count') or 0) == 0 else 1)
+          PY
+          then
+            echo 'Production topic table is empty; running one auditable bootstrap collection against remote D1.'
+            pnpm --dir workers/pipeline exec wrangler dev --config wrangler.bootstrap.jsonc --test-scheduled --ip 127.0.0.1 --port 8787 --log-level info > /tmp/bootstrap-wrangler.log 2>&1 &
+            DEV_PID=$!
+            cleanup() { kill "$DEV_PID" 2>/dev/null || true; wait "$DEV_PID" 2>/dev/null || true; }
+            trap cleanup EXIT
+
+            ready=0
+            for _ in $(seq 1 60); do
+              if curl --silent --fail http://127.0.0.1:8787/health >/dev/null 2>&1; then ready=1; break; fi
+              sleep 1
+            done
+            if [ "$ready" -ne 1 ]; then
+              echo '::error::Wrangler bootstrap dev server did not become ready.'
+              tail -n 200 /tmp/bootstrap-wrangler.log || true
+              exit 1
+            fi
+
+            curl --fail-with-body --silent --show-error 'http://127.0.0.1:8787/__scheduled' -o /tmp/bootstrap-trigger.txt
+
+            populated=0
+            for _ in $(seq 1 150); do
+              curl --fail-with-body --silent --show-error "$PIPELINE_URL/health" -o /tmp/post-bootstrap-health.json || true
+              if python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('/tmp/post-bootstrap-health.json')
+          if not p.exists(): raise SystemExit(1)
+          h=json.loads(p.read_text())
+          ok=int(h.get('raw_item_count') or 0) > 0 and int(h.get('topic_count') or 0) > 0 and int(h.get('snapshot_count') or 0) > 0
+          raise SystemExit(0 if ok else 1)
+          PY
+              then populated=1; break; fi
+              sleep 2
+            done
+            if [ "$populated" -ne 1 ]; then
+              echo '::error::Bootstrap collection did not populate production data.'
+              tail -n 300 /tmp/bootstrap-wrangler.log || true
+              cat /tmp/post-bootstrap-health.json || true
+              exit 1
+            fi
+            echo 'Bootstrap production collection populated D1 successfully.'
+          else
+            echo 'Production database already contains topics; bootstrap skipped.'
+          fi
+
+      - name: Production data and custom-domain acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          PIPELINE_URL='https://hot-topics-pipeline.zz9w9z.workers.dev'
+          CUSTOM_URL='https://hots.ccwu.cc'
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$PIPELINE_URL/health" -o /tmp/final-health.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$PIPELINE_URL/api/v1/topics?region=CN&limit=3" -o /tmp/final-cn.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors "$PIPELINE_URL/api/v1/topics?region=GLOBAL&limit=3" -o /tmp/final-global.json
+          curl --fail-with-body --silent --show-error --retry 10 --retry-delay 3 --retry-all-errors "$CUSTOM_URL/" -o /tmp/final-custom.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          h=json.loads(Path('/tmp/final-health.json').read_text())
+          cn=json.loads(Path('/tmp/final-cn.json').read_text()).get('data',[])
+          gl=json.loads(Path('/tmp/final-global.json').read_text()).get('data',[])
+          html=Path('/tmp/final-custom.html').read_text()
+          assert int(h.get('raw_item_count') or 0) > 0, h
+          assert int(h.get('topic_count') or 0) > 0, h
+          assert int(h.get('snapshot_count') or 0) > 0, h
+          assert cn, 'CN ranking is empty after bootstrap'
+          assert gl, 'GLOBAL ranking is empty after bootstrap'
+          assert '<html' in html.lower() and len(html) > 500, 'custom domain did not return rendered HTML'
+          print('FINAL_HEALTH_COUNTS:', {k: h.get(k) for k in ('topic_count','raw_item_count','snapshot_count')})
+          print('CN_SAMPLE_COUNT:', len(cn))
+          print('GLOBAL_SAMPLE_COUNT:', len(gl))
+          print('CUSTOM_DOMAIN_BYTES:', len(html.encode()))
           PY
 
       - name: Publish deployment result
