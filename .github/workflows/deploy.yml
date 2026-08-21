@@ -85,6 +85,37 @@ jobs:
       - name: Re-deploy pipeline after schema migration
         run: pnpm --dir workers/pipeline exec wrangler deploy --x-provision
 
+      - name: Rotate protected production run token
+        shell: bash
+        run: |
+          set -euo pipefail
+          ADMIN_RUN_TOKEN="$(openssl rand -hex 32)"
+          echo "::add-mask::$ADMIN_RUN_TOKEN"
+          echo "ADMIN_RUN_TOKEN=$ADMIN_RUN_TOKEN" >> "$GITHUB_ENV"
+          printf '%s' "$ADMIN_RUN_TOKEN" | pnpm --dir workers/pipeline exec wrangler secret put ADMIN_RUN_TOKEN
+
+      - name: Resolve production pipeline URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            -o /tmp/workers-subdomain.json
+          python - <<'PY' > /tmp/workers-subdomain.txt
+          import json
+          from pathlib import Path
+          payload=json.loads(Path('/tmp/workers-subdomain.json').read_text())
+          if not payload.get('success'):
+              raise SystemExit(f"workers subdomain lookup failed: {payload.get('errors')}")
+          subdomain=(payload.get('result') or {}).get('subdomain')
+          if not subdomain:
+              raise SystemExit('workers subdomain missing')
+          print(subdomain)
+          PY
+          SUBDOMAIN="$(cat /tmp/workers-subdomain.txt)"
+          echo "PIPELINE_URL=https://hot-topics-pipeline.${SUBDOMAIN}.workers.dev" >> "$GITHUB_ENV"
+
       - name: Prepare hots.ccwu.cc for Worker Custom Domain
         run: python scripts/cloudflare_custom_domain.py prepare
 
@@ -109,69 +140,95 @@ jobs:
           pnpm --dir workers/pipeline exec wrangler deployments list
           pnpm --dir apps/web exec wrangler deployments list
 
-      - name: Bootstrap first production collection against remote D1
-        timeout-minutes: 8
+      - name: Trigger real production collection
+        timeout-minutes: 3
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir workers/pipeline exec wrangler dev --config wrangler.bootstrap.jsonc --test-scheduled --ip 127.0.0.1 --port 8787 --log-level info > /tmp/bootstrap-wrangler.log 2>&1 &
-          DEV_PID=$!
-          cleanup() { kill "$DEV_PID" 2>/dev/null || true; wait "$DEV_PID" 2>/dev/null || true; }
-          trap cleanup EXIT
-
-          ready=0
-          for _ in $(seq 1 60); do
-            if curl --silent --fail http://127.0.0.1:8787/health -o /tmp/pre-bootstrap-health.json 2>/dev/null; then ready=1; break; fi
-            sleep 1
-          done
-          if [ "$ready" -ne 1 ]; then
-            echo '::error::Wrangler bootstrap server did not become ready.'
-            tail -n 250 /tmp/bootstrap-wrangler.log || true
-            exit 1
-          fi
-
-          if python - <<'PY'
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            -H "Authorization: Bearer $ADMIN_RUN_TOKEN" \
+            "$PIPELINE_URL/admin/run-now" \
+            -o /tmp/run-now.json
+          python - <<'PY' > /tmp/run-id.txt
           import json
           from pathlib import Path
-          h=json.loads(Path('/tmp/pre-bootstrap-health.json').read_text())
-          empty=int(h.get('topic_count') or 0) == 0 or int(h.get('snapshot_count') or 0) == 0
-          print('PRE_BOOTSTRAP_COUNTS:', {k: h.get(k) for k in ('topic_count','raw_item_count','snapshot_count')})
-          raise SystemExit(0 if empty else 1)
+          payload=json.loads(Path('/tmp/run-now.json').read_text())
+          run_id=payload.get('run_id')
+          if not payload.get('accepted') or not run_id:
+              raise SystemExit(f"production run was not accepted: {payload}")
+          print(run_id)
           PY
-          then
-            echo 'Production D1 has no published snapshot; invoking one scheduled-handler bootstrap.'
-            curl --fail-with-body --silent --show-error 'http://127.0.0.1:8787/__scheduled' -o /tmp/bootstrap-trigger.txt
-          else
-            echo 'Production D1 already has published data; bootstrap invocation skipped.'
-          fi
-
-          populated=0
-          for _ in $(seq 1 180); do
-            if curl --silent --fail http://127.0.0.1:8787/health -o /tmp/bootstrap-health-final.json 2>/dev/null; then
-              if python - <<'PY'
-          import json
-          from pathlib import Path
-          h=json.loads(Path('/tmp/bootstrap-health-final.json').read_text())
-          ok=int(h.get('raw_item_count') or 0) > 0 and int(h.get('topic_count') or 0) > 0 and int(h.get('snapshot_count') or 0) > 0
-          raise SystemExit(0 if ok else 1)
-          PY
-              then populated=1; break; fi
-            fi
-            sleep 2
-          done
-          if [ "$populated" -ne 1 ]; then
-            echo '::error::Production D1 still lacks a complete hotspot snapshot after bootstrap.'
-            tail -n 350 /tmp/bootstrap-wrangler.log || true
-            cat /tmp/bootstrap-health-final.json 2>/dev/null || true
-            exit 1
-          fi
-
+          PRODUCTION_RUN_ID="$(cat /tmp/run-id.txt)"
+          echo "PRODUCTION_RUN_ID=$PRODUCTION_RUN_ID" >> "$GITHUB_ENV"
           python - <<'PY'
           import json
           from pathlib import Path
-          h=json.loads(Path('/tmp/bootstrap-health-final.json').read_text())
-          print('POST_BOOTSTRAP_COUNTS:', {k: h.get(k) for k in ('topic_count','raw_item_count','snapshot_count')})
-          print('LAST_RUN_PRESENT:', bool(h.get('last_run')))
+          payload=json.loads(Path('/tmp/run-now.json').read_text())
+          print('COLLECTED_RAW_ITEMS:', payload.get('collected'))
+          print('SOURCE_RESULTS:')
+          for row in payload.get('source_results',[]):
+              print(f"  {row.get('source')}: {row.get('status')} ({row.get('item_count')} items)")
+          PY
+
+      - name: Wait for CN and GLOBAL production snapshots
+        timeout-minutes: 12
+        shell: bash
+        run: |
+          set -euo pipefail
+          complete=0
+          for _ in $(seq 1 150); do
+            if curl --silent --show-error --fail \
+              -H "Authorization: Bearer $ADMIN_RUN_TOKEN" \
+              "$PIPELINE_URL/admin/run-status?run_id=$PRODUCTION_RUN_ID" \
+              -o /tmp/run-status.json; then
+              if python - <<'PY'
+          import json
+          import sys
+          from pathlib import Path
+          payload=json.loads(Path('/tmp/run-status.json').read_text())
+          run=payload.get('run') or {}
+          counts=payload.get('region_counts') or {}
+          status=run.get('status')
+          cn=int(counts.get('CN') or 0)
+          gl=int(counts.get('GLOBAL') or 0)
+          print(f"RUN_STATUS={status} CN_SNAPSHOTS={cn} GLOBAL_SNAPSHOTS={gl}")
+          if status == 'FAILED':
+              raise SystemExit(2)
+          raise SystemExit(0 if status in {'PUBLISHED','PARTIAL'} and cn > 0 and gl > 0 else 1)
+          PY
+              then complete=1; break; fi
+            fi
+            sleep 4
+          done
+          if [ "$complete" -ne 1 ]; then
+            echo '::error::Production run did not reach a terminal state with snapshots in both CN and GLOBAL.'
+            cat /tmp/run-status.json 2>/dev/null || true
+            exit 1
+          fi
+          cat /tmp/run-status.json
+
+      - name: Verify production source coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error "$PIPELINE_URL/api/v1/source-health" -o /tmp/source-health.json
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          rows=(json.loads(Path('/tmp/source-health.json').read_text()).get('data') or [])
+          working={'CN':0,'GLOBAL':0}
+          print('PRODUCTION_SOURCE_HEALTH:')
+          for row in rows:
+              region=str(row.get('region') or '')
+              status=str(row.get('status') or '')
+              count=int(row.get('item_count') or 0)
+              print(f"  {region:6} {str(row.get('id')):20} {status:16} items={count}")
+              if region in working and status in {'healthy','degraded'} and count >= 3:
+                  working[region]+=1
+          print('WORKING_SOURCES:', working)
+          assert working['CN'] >= 4, f"CN source coverage below floor: {working['CN']} < 4"
+          assert working['GLOBAL'] >= 5, f"GLOBAL source coverage below floor: {working['GLOBAL']} < 5"
           PY
 
       - name: Custom-domain and rendered-hotspot acceptance
