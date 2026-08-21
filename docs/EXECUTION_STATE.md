@@ -1,29 +1,47 @@
 # Execution State
 
 - Date: 2026-08-21
-- Repository: `siner9586/Hot_Topics`
+- Repository: `siner9586-labs/Hot_Topics`
 - Target branch: `main`
 - State owner: Git repository, not chat context
-- Verified deployment-config SHA: `3c2bff50d2068721882bf332ea99d58af07d5dd0`
+- Verified production-deployment SHA: `5ded5a2289c7e5b7b6c1fcd95e09851d7921542a`
 - Verification CI: run `32458536320` / #29 — success
-- Last Cloudflare deployment run: `32458919022` — blocked at credential gate
-- Current readiness: `DEPLOYMENT_READY`
+- Verified Cloudflare deployment + HTTP smoke: run `32495169844` — success
+- Current readiness: `PRODUCTION_DEPLOYED_PENDING_FIRST_CRON`
 
 ## Completed and verified
 
-- A bootstrap/configuration
-- B D1 schema and idempotent repository layer
-- C real-source adapter framework and compliant default source set
-- D hybrid clustering guardrails
-- E Heat scoring and lifecycle
-- F Cron/Queue/D1 pipeline + read-only API
-- G Astro SSR UI, SEO/RSS, responsive/dark styles
-- H unit/resilience/idempotency/visual tests
-- I CI and guarded Cloudflare deployment workflow
-- J architecture/method/source/operations docs
-- K current Astro/Cloudflare runtime migration
-- L Wrangler aligned to `4.125.0` after Cloudflare Vite peer requirement changed
-- M production deploy now triggers automatically from relevant `main` pushes and publishes `cloudflare/production` commit status
+- bootstrap/configuration
+- D1 schema and idempotent repository layer
+- real-source adapter framework and compliant default source set
+- hybrid clustering guardrails
+- versioned Heat scoring and lifecycle
+- Cron/Queue/D1 pipeline + read-only API
+- Astro SSR UI, SEO/RSS, responsive/dark styles
+- unit/resilience/idempotency/visual tests
+- CI and guarded Cloudflare deployment workflow
+- current Astro/Cloudflare runtime integration and Wrangler `4.125.0`
+- GitHub Organization migration to `siner9586-labs`
+- Organization-level Cloudflare credential inheritance
+- Cloudflare production authentication with an Account API Token
+- production Queue and DLQ creation
+- production D1 creation and migration
+- pipeline Worker deployment and 3-hour Cron trigger
+- web Worker deployment and API service binding
+- Astro session KV provisioning
+- public HTTP smoke for pipeline health/topics and rendered web homepage
+
+## Production resources
+
+- Web: `https://hot-topics-web.zz9w9z.workers.dev`
+- Pipeline/API: `https://hot-topics-pipeline.zz9w9z.workers.dev`
+- D1: `hot-topics`
+- D1 ID: `1a39041d-4f3b-4cea-b929-6006fa6299ce`
+- Queue: `hot-topics-pipeline`
+- DLQ: `hot-topics-pipeline-dlq`
+- Web service binding: `API -> hot-topics-pipeline`
+- Session KV: `hot-topics-web-session`
+- Cron: `0 1,4,7,10,13,16,19,22 * * *` (UTC; every 3 hours)
 
 ## Verification
 
@@ -35,27 +53,31 @@
 - dependency audit: pass
 - real-data smoke: pass
 - Playwright desktop/mobile/dark smoke: pass
-- CI: pass
+- Cloudflare credential gate: pass
+- `wrangler whoami`: pass
+- D1 migration `0001_initial.sql`: pass
+- pipeline deploy: pass
+- web deploy: pass
+- deployment-record listing: pass
+- public `/health`: pass
+- public `/api/v1/topics?limit=3`: pass
+- public web `/`: pass, rendered HTML verified
 
-Latest audited real smoke remains compliant with real public data. Current working-source breadth is CN 2 and GLOBAL 3; degraded/disabled sources are not replaced with fixtures.
+At the deployment HTTP smoke, the new production database was correctly initialized but had not yet received a scheduled collection: `topic_count=0`, `raw_item_count=0`, `snapshot_count=0`, `last_run=null`. This is expected because deployment completed between Cron windows.
 
-## Cloudflare production deployment
+## Remaining verification gate
 
-Deployment run `32458919022` executed from `main` and stopped before any Cloudflare resource write because both required CI credentials are absent:
+The only Cloudflare-runtime gate not yet observed in production is the first real Cron invocation and its Queue -> process -> D1 publication path. Cloudflare documents production Cron execution as schedule-driven; the supported manual scheduled-handler endpoint is for local development, so no temporary high-frequency production trigger was introduced merely to manufacture a pass result.
 
-- `CLOUDFLARE_API_TOKEN`: missing from GitHub Actions secrets
-- `CLOUDFLARE_ACCOUNT_ID`: missing from GitHub Actions secret/repository variable
+After the first scheduled run, verify:
 
-Therefore the run did **not** create or modify D1, Queues, Workers, Cron triggers or a production URL. This is an external-auth blocker, not an engineering/build failure.
+1. `/health` reports non-null `last_run` and non-zero production raw/topic/snapshot counts;
+2. Queue processing completes and no unexpected retry/DLQ condition exists;
+3. `/api/v1/topics` returns real published topics;
+4. Web rankings render those production topics through the Worker service binding.
 
-The deployment workflow is already configured to continue automatically once credentials exist. It will verify Cloudflare authentication, ensure `hot-topics-pipeline` and `hot-topics-pipeline-dlq`, provision/bind D1, apply migrations, deploy the pipeline Worker and web Worker, and list deployment records.
+Only then collapse status to `PRODUCTION_DEPLOYED` without the pending-first-cron qualifier.
 
-## Remaining blockers
+## Independent content limitation
 
-1. Add a scoped Cloudflare API token as GitHub Actions secret `CLOUDFLARE_API_TOKEN`.
-2. Add the Cloudflare account ID as `CLOUDFLARE_ACCOUNT_ID` (repository variable or secret).
-3. Preferred V1 source breadth CN >=3 / GLOBAL >=4 is not yet met; current compliant working breadth is CN 2 / GLOBAL 3.
-
-## Next atomic task
-
-After the two Cloudflare credential values are configured, re-run `Deploy Cloudflare` or push a relevant production change. Only set `PRODUCTION_DEPLOYED` after D1 migrations, Queue bindings, both Workers, Cron scheduling and HTTP production checks all pass.
+Current compliant working-source breadth remains CN 2 / GLOBAL 3. The preferred V1 target CN >=3 / GLOBAL >=4 is still not met; protected/degraded sources are not bypassed and fixture data is not published as production data.
