@@ -1,6 +1,6 @@
 {
   "status": "DEPLOYMENT_READY",
-  "head_sha": "b24e99b0435f49ac2938d9eb16e91c4276bc1beb",
+  "head_sha": "3c2bff50d2068721882bf332ea99d58af07d5dd0",
   "real_data": true,
   "china_sources_working": 2,
   "global_sources_working": 3,
@@ -12,8 +12,11 @@
   "ci_passed": true,
   "deployment_verified": false,
   "production_url": null,
+  "last_deployment_run_id": 32458919022,
+  "last_deployment_result": "BLOCKED_AT_CREDENTIAL_GATE",
   "known_blockers": [
-    "DEPLOYMENT_BLOCKED_BY_EXTERNAL_AUTH_OR_CONNECTOR_CAPABILITY",
+    "CLOUDFLARE_API_TOKEN_MISSING",
+    "CLOUDFLARE_ACCOUNT_ID_MISSING",
     "SOURCE_TARGET_CN_3_GLOBAL_4_NOT_MET"
   ]
 }
