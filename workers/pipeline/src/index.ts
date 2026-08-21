@@ -13,6 +13,7 @@ function json(data:unknown,status=200,cache='public, max-age=60, s-maxage=180'){
 }
 function runIdFor(timestamp:number,prefix='run'):string{ return `${prefix}_${new Date(timestamp).toISOString().replace(/[-:.TZ]/g,'').slice(0,14)}`; }
 function bearer(request:Request):string{ return request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')??''; }
+function adminAuthorized(request:Request,env:ServiceEnv):boolean{ return Boolean(env.ADMIN_RUN_TOKEN)&&bearer(request)===env.ADMIN_RUN_TOKEN; }
 
 async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Promise<PipelineRunReport>{
   await startSystemRun(env.DB,runId,capturedAt); await setRunStatus(env.DB,runId,'COLLECTING',new Date().toISOString());
@@ -63,10 +64,22 @@ async function handleApi(request:Request,env:ServiceEnv):Promise<Response>{
 }
 
 async function handleRunNow(request:Request,env:ServiceEnv):Promise<Response>{
-  if(!env.ADMIN_RUN_TOKEN || bearer(request)!==env.ADMIN_RUN_TOKEN) return json({error:'not_found'},404,'no-store');
+  if(!adminAuthorized(request,env)) return json({error:'not_found'},404,'no-store');
   const capturedAt=new Date().toISOString(); const runId=runIdFor(Date.now(),'manual');
   const report=await collectAndQueue(env,runId,capturedAt);
   return json({accepted:true,run_id:runId,collected:report.rawItemCount,source_results:report.sources.map((s)=>({source:s.sourceId,status:s.status,item_count:s.itemCount}))},202,'no-store');
+}
+
+async function handleRunStatus(request:Request,env:ServiceEnv):Promise<Response>{
+  if(!adminAuthorized(request,env)) return json({error:'not_found'},404,'no-store');
+  const runId=new URL(request.url).searchParams.get('run_id')?.trim();
+  if(!runId) return json({error:'run_id_required'},400,'no-store');
+  const run=await env.DB.prepare(`SELECT id,status,started_at,updated_at,detail_json FROM system_runs WHERE id=? LIMIT 1`).bind(runId).first<Record<string,unknown>>();
+  if(!run) return json({error:'run_not_found'},404,'no-store');
+  const regionResult=await env.DB.prepare(`SELECT region,COUNT(*) snapshot_count FROM topic_snapshots WHERE run_id=? GROUP BY region`).bind(runId).all<Record<string,unknown>>();
+  const sourceResult=await env.DB.prepare(`SELECT source_id,status,item_count,duration_ms,error_code,detail FROM source_runs WHERE run_id=? ORDER BY source_id`).bind(runId).all<Record<string,unknown>>();
+  const regionCounts=Object.fromEntries((regionResult.results??[]).map((row)=>[String(row.region),Number(row.snapshot_count??0)]));
+  return json({run,region_counts:{CN:Number(regionCounts.CN??0),GLOBAL:Number(regionCounts.GLOBAL??0)},sources:sourceResult.results??[]},200,'no-store');
 }
 
 export default {
@@ -75,6 +88,10 @@ export default {
     if(path==='/admin/run-now'){
       if(request.method!=='POST') return json({error:'method_not_allowed'},405,'no-store');
       return handleRunNow(request,env);
+    }
+    if(path==='/admin/run-status'){
+      if(request.method!=='GET') return json({error:'method_not_allowed'},405,'no-store');
+      return handleRunStatus(request,env);
     }
     if(request.method!=='GET'&&request.method!=='HEAD')return json({error:'method_not_allowed'},405,'no-store');
     return handleApi(request,env);
