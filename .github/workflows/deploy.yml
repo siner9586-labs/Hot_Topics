@@ -29,7 +29,7 @@ jobs:
     environment: production
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - name: Publish deployment pending status
         continue-on-error: true
@@ -51,9 +51,20 @@ jobs:
       - name: Require Cloudflare credentials
         shell: bash
         run: |
-          test -n "$CLOUDFLARE_API_TOKEN"
-          test -n "$CLOUDFLARE_ACCOUNT_ID"
-          echo "Cloudflare deployment credentials are present."
+          missing=0
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo '::error::CLOUDFLARE_API_TOKEN is not configured in GitHub Actions secrets.'
+            missing=1
+          else
+            echo 'CLOUDFLARE_API_TOKEN is configured.'
+          fi
+          if [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo '::error::CLOUDFLARE_ACCOUNT_ID is not configured as a GitHub Actions secret or repository variable.'
+            missing=1
+          else
+            echo 'CLOUDFLARE_ACCOUNT_ID is configured.'
+          fi
+          exit "$missing"
 
       - name: Verify Cloudflare authentication
         run: pnpm --dir workers/pipeline exec wrangler whoami
