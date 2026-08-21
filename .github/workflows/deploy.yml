@@ -1,10 +1,29 @@
 name: Deploy Cloudflare
+
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'workers/**'
+      - 'packages/**'
+      - 'migrations/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.github/workflows/deploy.yml'
+
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
 permissions:
   contents: read
+
 jobs:
   deploy:
+    if: github.repository == 'siner9586/Hot_Topics'
     runs-on: ubuntu-latest
     environment: production
     env:
@@ -16,17 +35,40 @@ jobs:
         with: { node-version: '22' }
       - run: corepack enable && corepack prepare pnpm@11.18.0 --activate
       - run: pnpm install --no-frozen-lockfile
+
       - name: Require Cloudflare credentials
-        run: test -n "$CLOUDFLARE_API_TOKEN" && test -n "$CLOUDFLARE_ACCOUNT_ID"
-      - name: Ensure queues
+        shell: bash
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN"
+          test -n "$CLOUDFLARE_ACCOUNT_ID"
+          echo "Cloudflare deployment credentials are present."
+
+      - name: Verify Cloudflare authentication
+        run: pnpm --dir workers/pipeline exec wrangler whoami
+
+      - name: Ensure production queues
+        shell: bash
         run: |
           pnpm --dir workers/pipeline exec wrangler queues create hot-topics-pipeline || true
           pnpm --dir workers/pipeline exec wrangler queues create hot-topics-pipeline-dlq || true
-      - name: Deploy pipeline (auto-provision D1 when absent)
-        run: pnpm --dir workers/pipeline deploy
+
+      - name: Deploy pipeline and provision Cloudflare resources
+        run: pnpm --dir workers/pipeline exec wrangler deploy --x-provision
+
       - name: Apply D1 migrations
         run: pnpm --dir workers/pipeline exec wrangler d1 migrations apply hot-topics --remote
-      - name: Deploy pipeline with migrated schema
-        run: pnpm --dir workers/pipeline deploy
-      - name: Build and deploy web
-        run: pnpm --dir apps/web build && pnpm --dir apps/web deploy
+
+      - name: Re-deploy pipeline after schema migration
+        run: pnpm --dir workers/pipeline exec wrangler deploy --x-provision
+
+      - name: Build web
+        run: pnpm --dir apps/web build
+
+      - name: Deploy web Worker
+        run: pnpm --dir apps/web exec wrangler deploy
+
+      - name: Verify Cloudflare deployment records
+        shell: bash
+        run: |
+          pnpm --dir workers/pipeline exec wrangler deployments list
+          pnpm --dir apps/web exec wrangler deployments list
