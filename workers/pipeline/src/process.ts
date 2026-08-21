@@ -9,6 +9,8 @@ import { computeHeat, deltaHeat, freshnessScore, inferLifecycle, momentumLabel, 
 import { clamp, slugify, stableHash } from '@hot-topics/shared';
 import type { ProcessRunMessage } from './runtime-types.ts';
 
+const PROCESSING_ITEMS_PER_SOURCE=15;
+
 function classify(title:string,hint?:string):TopicCategory{
   if(hint && ['社会','国际','财经','科技','AI','汽车','娱乐','体育','游戏','文化教育','健康','其他'].includes(hint)) return hint as TopicCategory;
   const s=title.toLowerCase();
@@ -41,9 +43,11 @@ function anomalyRisk(items:Array<Record<string,any>>,heat:number):number{
   return clamp((sources===1&&heat>75?45:0)+repetition*45);
 }
 
-export async function processRun(db:D1Database,message:ProcessRunMessage):Promise<{topics:number;snapshots:number}>{
-  await setRunStatus(db,message.runId,'PROCESSING',new Date().toISOString());
-  const rawRows=await rawItemsForRun(db,message.runId); const raw=rawRows.map(rowToRaw);
+export async function processRun(db:D1Database,message:ProcessRunMessage):Promise<{topics:number;snapshots:number;region:Region}>{
+  await setRunStatus(db,message.runId,'PROCESSING',new Date().toISOString(),{region:message.region});
+  // Preserve every accepted raw item in D1, but score only each source's leading items.
+  // This makes source breadth independent from per-invocation D1 query growth.
+  const rawRows=await rawItemsForRun(db,message.runId,message.region,PROCESSING_ITEMS_PER_SOURCE); const raw=rawRows.map(rowToRaw);
   const since=new Date(Date.parse(message.capturedAt)-RECENT_TOPIC_LOOKBACK_HOURS*3_600_000).toISOString();
   const existing=await recentTopics(db,since);
   const seeds=existing.map((t)=>({topicId:t.id,title:t.canonical_title_en||t.canonical_title_zh,firstSeenAt:t.first_seen_at,lastSeenAt:t.last_seen_at}));
@@ -61,17 +65,17 @@ export async function processRun(db:D1Database,message:ProcessRunMessage):Promis
     await linkItem(db,topicId,assignment.item.id,message.runId,assignment.decision?.confidence??1,assignment.decision?.reasonCode??'new_topic_seed');
     if(assignment.decision) await saveClusterDecision(db,message.runId,assignment.item.id,topicId,assignment.decision);
   }
-  await setRunStatus(db,message.runId,'SCORING',new Date().toISOString());
-  const linked=await topicItemsForRun(db,message.runId);
+  await setRunStatus(db,message.runId,'SCORING',new Date().toISOString(),{region:message.region});
+  const linked=await topicItemsForRun(db,message.runId,message.region);
   const sourceGroups=new Map<string,Array<Record<string,any>>>();
   for(const row of linked){ const a=sourceGroups.get(row.source_id)??[];a.push(row);sourceGroups.set(row.source_id,a); }
   const platformScores=new Map<string,number>();
   for(const [sourceId,rows] of sourceGroups){ const scores=normalizePlatformItems(rows.map(rowToRaw)); rows.forEach((row,i)=>platformScores.set(`${sourceId}:${row.id}`,scores[i]??0)); }
-  const topicRegion=new Map<string,Array<Record<string,any>>>();
-  for(const row of linked){ const key=`${row.topic_id}|${row.region}`; const a=topicRegion.get(key)??[];a.push(row);topicRegion.set(key,a); }
+  const topicGroups=new Map<string,Array<Record<string,any>>>();
+  for(const row of linked){ const a=topicGroups.get(row.topic_id)??[];a.push(row);topicGroups.set(row.topic_id,a); }
   let snapshots=0;
-  for(const [key,items] of topicRegion){
-    const split=key.lastIndexOf('|'); const topicId=key.slice(0,split); const region=key.slice(split+1) as Region;
+  for(const [topicId,items] of topicGroups){
+    const region=message.region;
     const bySource=new Map<string,Array<Record<string,any>>>(); for(const item of items){const a=bySource.get(item.source_id)??[];a.push(item);bySource.set(item.source_id,a);}
     const contributions:PlatformContribution[]=[];
     for(const [sourceId,rows] of bySource){
@@ -95,5 +99,5 @@ export async function processRun(db:D1Database,message:ProcessRunMessage):Promis
       coverageConfidence:heat.coverageConfidence,crossPlatformIndex:heat.crossPlatformIndex,components:heat.components,capturedAt:message.capturedAt,scoringModelVersion:SCORING_MODEL_VERSION,evidenceCoverage:ev,anomalyRisk:anomaly});
     await updateTopicHeat(db,topicId,region,heat.heat,lifecycle); snapshots+=1;
   }
-  return {topics:newTopics,snapshots};
+  return {topics:newTopics,snapshots,region:message.region};
 }
