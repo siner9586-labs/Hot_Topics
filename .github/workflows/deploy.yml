@@ -96,6 +96,29 @@ jobs:
           pnpm --dir workers/pipeline exec wrangler deployments list
           pnpm --dir apps/web exec wrangler deployments list
 
+      - name: Production HTTP smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          PIPELINE_URL='https://hot-topics-pipeline.zz9w9z.workers.dev'
+          WEB_URL='https://hot-topics-web.zz9w9z.workers.dev'
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$PIPELINE_URL/health" -o /tmp/health.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$PIPELINE_URL/api/v1/topics?limit=3" -o /tmp/topics.json
+          curl --fail-with-body --silent --show-error --retry 5 --retry-delay 2 "$WEB_URL/" -o /tmp/index.html
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          health=json.loads(Path('/tmp/health.json').read_text())
+          topics=json.loads(Path('/tmp/topics.json').read_text())
+          html=Path('/tmp/index.html').read_text()
+          assert isinstance(health, dict), health
+          assert isinstance(topics, dict) and isinstance(topics.get('data'), list), topics
+          assert '<html' in html.lower() and len(html) > 500, 'web response did not look like rendered HTML'
+          print('HEALTH:', json.dumps(health, ensure_ascii=False)[:1000])
+          print('TOPIC_COUNT_SAMPLE:', len(topics['data']))
+          print('WEB_BYTES:', len(html.encode()))
+          PY
+
       - name: Publish deployment result
         if: always()
         continue-on-error: true
