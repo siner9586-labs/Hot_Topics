@@ -24,7 +24,6 @@ permissions:
 
 jobs:
   deploy:
-    if: github.repository == 'siner9586/Hot_Topics'
     runs-on: ubuntu-latest
     environment: production
     env:
