@@ -68,8 +68,23 @@ export async function insertRawItems(db:D1Database,runId:string,items:RawHotItem
   return inserted;
 }
 
-export async function rawItemsForRun(db:D1Database,runId:string):Promise<Array<Record<string,any>>>{
-  const r=await db.prepare(`SELECT r.*,s.region,s.source_type,s.reliability_weight FROM raw_items r JOIN sources s ON s.id=r.source_id WHERE r.run_id=? ORDER BY r.source_id,r.rank`).bind(runId).all<Record<string,any>>();
+export async function rawItemsForRun(db:D1Database,runId:string,region?:string,limitPerSource=15):Promise<Array<Record<string,any>>>{
+  const safeLimit=Math.min(50,Math.max(1,Math.floor(limitPerSource)));
+  if(region){
+    const r=await db.prepare(`WITH ranked AS (
+      SELECT r.*,s.region,s.source_type,s.reliability_weight,
+        ROW_NUMBER() OVER (PARTITION BY r.source_id ORDER BY COALESCE(r.rank,999999),r.retrieved_at DESC) AS source_row
+      FROM raw_items r JOIN sources s ON s.id=r.source_id WHERE r.run_id=? AND s.region=?
+    ) SELECT * FROM ranked WHERE source_row<=? ORDER BY source_id,COALESCE(rank,999999),retrieved_at DESC`)
+      .bind(runId,region,safeLimit).all<Record<string,any>>();
+    return r.results??[];
+  }
+  const r=await db.prepare(`WITH ranked AS (
+    SELECT r.*,s.region,s.source_type,s.reliability_weight,
+      ROW_NUMBER() OVER (PARTITION BY r.source_id ORDER BY COALESCE(r.rank,999999),r.retrieved_at DESC) AS source_row
+    FROM raw_items r JOIN sources s ON s.id=r.source_id WHERE r.run_id=?
+  ) SELECT * FROM ranked WHERE source_row<=? ORDER BY source_id,COALESCE(rank,999999),retrieved_at DESC`)
+    .bind(runId,safeLimit).all<Record<string,any>>();
   return r.results??[];
 }
 
@@ -97,7 +112,11 @@ export async function saveClusterDecision(db:D1Database,runId:string,rawItemId:s
     VALUES(?,?,?,?,?,?,?,?,datetime('now'))`).bind(`${runId}:${rawItemId}`,runId,rawItemId,topicId,decision.sameEvent?1:0,decision.confidence,decision.reasonCode,decision.similarity).run();
 }
 
-export async function topicItemsForRun(db:D1Database,runId:string):Promise<Array<Record<string,any>>>{
+export async function topicItemsForRun(db:D1Database,runId:string,region?:string):Promise<Array<Record<string,any>>>{
+  if(region){
+    const r=await db.prepare(`SELECT ti.topic_id,r.*,s.region,s.source_type,s.reliability_weight FROM topic_items ti JOIN raw_items r ON r.id=ti.raw_item_id JOIN sources s ON s.id=r.source_id WHERE ti.run_id=? AND s.region=?`).bind(runId,region).all<Record<string,any>>();
+    return r.results??[];
+  }
   const r=await db.prepare(`SELECT ti.topic_id,r.*,s.region,s.source_type,s.reliability_weight FROM topic_items ti JOIN raw_items r ON r.id=ti.raw_item_id JOIN sources s ON s.id=r.source_id WHERE ti.run_id=?`).bind(runId).all<Record<string,any>>();
   return r.results??[];
 }
@@ -125,6 +144,13 @@ export async function insertPlatformSnapshot(db:D1Database,row:Record<string,any
 export async function updateTopicHeat(db:D1Database,topicId:string,region:string,heat:number,lifecycle:string):Promise<void>{
   const column=region==='CN'?'china_heat':'global_heat';
   await db.prepare(`UPDATE topics SET ${column}=?, lifecycle=?, status='active' WHERE id=?`).bind(heat,lifecycle,topicId).run();
+}
+
+export async function runSnapshotCounts(db:D1Database,runId:string):Promise<{CN:number;GLOBAL:number}>{
+  const r=await db.prepare(`SELECT region,COUNT(*) snapshot_count FROM topic_snapshots WHERE run_id=? GROUP BY region`).bind(runId).all<{region:string;snapshot_count:number}>();
+  const counts={CN:0,GLOBAL:0};
+  for(const row of r.results??[]){ if(row.region==='CN'||row.region==='GLOBAL') counts[row.region]=Number(row.snapshot_count??0); }
+  return counts;
 }
 
 export async function listRankings(db:D1Database,region:string,limit:number,mode:string):Promise<Array<Record<string,any>>>{
