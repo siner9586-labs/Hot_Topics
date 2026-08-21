@@ -1,3 +1,4 @@
+import type { Region } from '@hot-topics/core';
 import type { D1Database } from '@hot-topics/db';
 
 export interface QueueBinding<T> { send(message:T):Promise<void>; }
@@ -41,7 +42,7 @@ export interface ServiceEnv {
   SOURCE_TIKTOK_ENABLED?:string;
 }
 export interface ProcessRunMessage {
-  type:'PROCESS_RUN'; runId:string; capturedAt:string;
+  type:'PROCESS_RUN'; runId:string; capturedAt:string; region:Region;
   expectedWeightByRegion:{CN:number;GLOBAL:number}; availableWeightByRegion:{CN:number;GLOBAL:number};
   sourceStatuses:Record<string,string>;
 }
