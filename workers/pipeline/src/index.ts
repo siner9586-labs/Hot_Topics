@@ -11,7 +11,8 @@ function envRecord(env:ServiceEnv):Record<string,string|undefined>{ return env a
 function json(data:unknown,status=200,cache='public, max-age=60, s-maxage=180'){
   return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':cache,'access-control-allow-origin':'*','x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'}});
 }
-function runIdFor(timestamp:number):string{ return `run_${new Date(timestamp).toISOString().replace(/[-:.TZ]/g,'').slice(0,12)}`; }
+function runIdFor(timestamp:number,prefix='run'):string{ return `${prefix}_${new Date(timestamp).toISOString().replace(/[-:.TZ]/g,'').slice(0,14)}`; }
+function bearer(request:Request):string{ return request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')??''; }
 
 async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Promise<PipelineRunReport>{
   await startSystemRun(env.DB,runId,capturedAt); await setRunStatus(env.DB,runId,'COLLECTING',new Date().toISOString());
@@ -42,7 +43,7 @@ async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Pr
 async function handleApi(request:Request,env:ServiceEnv):Promise<Response>{
   const url=new URL(request.url); const path=url.pathname;
   if(path==='/health'){
-    const token=request.headers.get('authorization')?.replace(/^Bearer\s+/i,'');
+    const token=bearer(request);
     if(env.ADMIN_HEALTH_TOKEN && token!==env.ADMIN_HEALTH_TOKEN) return json({status:'ok',detail:'protected'},200,'no-store');
     return json(await healthSummary(env.DB),200,'no-store');
   }
@@ -61,8 +62,23 @@ async function handleApi(request:Request,env:ServiceEnv):Promise<Response>{
   return json({error:'not_found'},404);
 }
 
+async function handleRunNow(request:Request,env:ServiceEnv):Promise<Response>{
+  if(!env.ADMIN_RUN_TOKEN || bearer(request)!==env.ADMIN_RUN_TOKEN) return json({error:'not_found'},404,'no-store');
+  const capturedAt=new Date().toISOString(); const runId=runIdFor(Date.now(),'manual');
+  const report=await collectAndQueue(env,runId,capturedAt);
+  return json({accepted:true,run_id:runId,collected:report.rawItemCount,source_results:report.sources.map((s)=>({source:s.sourceId,status:s.status,item_count:s.itemCount}))},202,'no-store');
+}
+
 export default {
-  async fetch(request:Request,env:ServiceEnv):Promise<Response>{ if(request.method!=='GET'&&request.method!=='HEAD')return json({error:'method_not_allowed'},405,'no-store'); return handleApi(request,env); },
+  async fetch(request:Request,env:ServiceEnv):Promise<Response>{
+    const path=new URL(request.url).pathname;
+    if(path==='/admin/run-now'){
+      if(request.method!=='POST') return json({error:'method_not_allowed'},405,'no-store');
+      return handleRunNow(request,env);
+    }
+    if(request.method!=='GET'&&request.method!=='HEAD')return json({error:'method_not_allowed'},405,'no-store');
+    return handleApi(request,env);
+  },
   async scheduled(controller:ScheduledController,env:ServiceEnv,ctx:ExecutionContext):Promise<void>{ const capturedAt=new Date(controller.scheduledTime).toISOString(); const runId=runIdFor(controller.scheduledTime); ctx.waitUntil(collectAndQueue(env,runId,capturedAt)); },
   async queue(batch:MessageBatch<ProcessRunMessage>,env:ServiceEnv):Promise<void>{
     for(const message of batch.messages){ try{ const result=await processRun(env.DB,message.body); const statuses=Object.values(message.body.sourceStatuses); const publishStatus=statuses.some((s)=>!['healthy','degraded','disabled','auth_required','requires_access'].includes(s))?'PARTIAL':'PUBLISHED';
