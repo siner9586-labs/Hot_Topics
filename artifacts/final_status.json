@@ -1,34 +1,53 @@
 {
-  "status": "PRODUCTION_DEPLOYED_PENDING_FIRST_CRON",
-  "verified_deployment_sha": "5ded5a2289c7e5b7b6c1fcd95e09851d7921542a",
+  "status": "PRODUCTION_DEPLOYED_VERIFIED",
+  "verified_deployment_sha": "dd619e9a772f443974bc8efc972418d12384c40e",
   "repository": "siner9586-labs/Hot_Topics",
+  "production_url": "https://hots.ccwu.cc/",
   "real_data": true,
-  "china_sources_working": 2,
-  "global_sources_working": 3,
+  "china_sources_working": 4,
+  "global_sources_working": 7,
+  "source_coverage_floor": {
+    "CN": 4,
+    "GLOBAL": 5
+  },
   "pipeline_verified": true,
   "scoring_verified": true,
   "clustering_verified": true,
-  "tests_passed": true,
-  "build_passed": true,
-  "ci_passed": true,
   "deployment_verified": true,
   "http_smoke_verified": true,
+  "custom_domain_verified": true,
   "d1_migrations_verified": true,
   "queues_verified": true,
   "service_binding_verified": true,
   "cron_config_verified": true,
+  "manual_production_collection_verified": true,
   "scheduled_collection_verified": false,
-  "production_url": "https://hot-topics-web.zz9w9z.workers.dev",
-  "pipeline_url": "https://hot-topics-pipeline.zz9w9z.workers.dev",
-  "d1_database": "hot-topics",
-  "d1_database_id": "1a39041d-4f3b-4cea-b929-6006fa6299ce",
-  "production_topic_count_at_http_smoke": 0,
-  "production_raw_item_count_at_http_smoke": 0,
-  "production_snapshot_count_at_http_smoke": 0,
-  "last_deployment_run_id": 32495169844,
-  "last_deployment_result": "SUCCESS_WITH_HTTP_SMOKE",
-  "known_blockers": [
-    "FIRST_PRODUCTION_CRON_RUN_PENDING",
-    "SOURCE_TARGET_CN_3_GLOBAL_4_NOT_MET"
-  ]
+  "last_verified_collection": {
+    "run_id": "manual_20260821180402",
+    "status": "PARTIAL",
+    "raw_item_count": 463,
+    "cn_snapshot_count": 19,
+    "global_snapshot_count": 21,
+    "working_cn_sources": ["baidu", "people", "chinanews", "toutiao"],
+    "working_global_sources": ["hackernews", "wikimedia", "bbc", "google-news", "guardian-world", "nyt-world", "aljazeera"]
+  },
+  "last_deployment_run_id": 32511327506,
+  "last_deployment_result": "SUCCESS_DUAL_REGION_AND_CUSTOM_DOMAIN_ACCEPTANCE",
+  "known_degradations": [
+    "36KR_RSS_SCHEMA_CHANGED",
+    "BILIBILI_HTTP_412_FROM_CLOUDFLARE_EGRESS",
+    "GITHUB_TRENDING_CHALLENGE_PAGE"
+  ],
+  "credential_gated_sources": [
+    "douyin",
+    "weibo",
+    "youtube",
+    "reddit",
+    "x",
+    "tiktok",
+    "google-trends",
+    "gdelt-cloud",
+    "zhihu"
+  ],
+  "known_blockers": []
 }
