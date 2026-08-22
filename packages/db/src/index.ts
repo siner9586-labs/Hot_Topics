@@ -166,12 +166,20 @@ export async function runSnapshotCounts(db:D1Database,runId:string):Promise<{CN:
   return counts;
 }
 
+/** Current rankings are one coherent completed observation window, not a collage of each topic's all-time latest score. */
 export async function listRankings(db:D1Database,region:string,limit:number,mode:string):Promise<Array<Record<string,any>>>{
   const safeLimit=Math.min(100,Math.max(1,limit));
   const order=mode==='rising'?'COALESCE(s.delta,-999) DESC, s.heat DESC':mode==='cooling'?'COALESCE(s.delta,999) ASC, s.heat DESC':mode==='new'?'s.is_new DESC,s.heat DESC':'s.heat DESC';
-  const r=await db.prepare(`WITH latest AS (SELECT topic_id,MAX(captured_at) captured_at FROM topic_snapshots WHERE region=? GROUP BY topic_id)
+  const r=await db.prepare(`WITH latest_run AS (
+      SELECT sr.id AS run_id
+      FROM system_runs sr
+      WHERE sr.status IN ('PUBLISHED','PARTIAL')
+        AND EXISTS (SELECT 1 FROM topic_snapshots x WHERE x.run_id=sr.id AND x.region=?)
+      ORDER BY sr.started_at DESC
+      LIMIT 1
+    )
     SELECT t.*,s.heat,s.delta,s.is_new,s.momentum,s.lifecycle,s.coverage_confidence,s.cross_platform_index,s.components_json,s.evidence_coverage,s.anomaly_risk,s.captured_at
-    FROM latest l JOIN topic_snapshots s ON s.topic_id=l.topic_id AND s.captured_at=l.captured_at AND s.region=? JOIN topics t ON t.id=s.topic_id
+    FROM latest_run lr JOIN topic_snapshots s ON s.run_id=lr.run_id AND s.region=? JOIN topics t ON t.id=s.topic_id
     ORDER BY ${order} LIMIT ?`).bind(region,region,safeLimit).all<Record<string,any>>();
   return r.results??[];
 }
