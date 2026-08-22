@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 
-export interface ApiResult<T> { data:T; generated_at?:string; region?:string; mode?:string; }
+export interface ApiResult<T> { data:T; generated_at?:string; data_as_of?:string|null; stale?:boolean; region?:string; mode?:string; }
 export interface RankingRow {
   id:string; slug:string; canonical_title_zh:string; canonical_title_en:string; category:string; first_seen_at:string; last_seen_at:string;
   china_heat:number; global_heat:number; heat:number; delta:number|null; is_new:number; momentum:string; lifecycle:string; coverage_confidence:number;
@@ -12,14 +12,14 @@ export async function apiFetch<T>(_locals:any,path:string):Promise<T|null>{
   const explicitOrigin=import.meta.env.PUBLIC_API_ORIGIN;
   if(explicitOrigin){
     try{
-      const response=await fetch(`${explicitOrigin}${path}`);
+      const response=await fetch(`${explicitOrigin}${path}`,{cache:'no-store'});
       if(response.ok) return await response.json() as T;
     }catch{/* production binding remains the fallback */}
   }
   try{
     const service=(env as any)?.API;
     if(!service?.fetch) return null;
-    const response=await service.fetch(new Request(`https://pipeline.internal${path}`));
+    const response=await service.fetch(new Request(`https://pipeline.internal${path}`,{headers:{'cache-control':'no-cache'}}));
     if(!response.ok) return null;
     return await response.json() as T;
   }catch{return null;}
