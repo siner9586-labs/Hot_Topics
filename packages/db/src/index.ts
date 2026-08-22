@@ -51,20 +51,33 @@ export async function recordSourceRun(db:D1Database,runId:string,result:SourceRu
     .bind(result.status,result.status,finishedAt,result.status,finishedAt,adapter.id).run();
 }
 
+/**
+ * A source item and a collection observation are different identities.
+ * sourceItemKey stays stable across runs; id is run-scoped so the same hot item
+ * can be observed again with a new rank/heat value on every scheduled cycle.
+ */
+export function rawObservationIdentity(runId:string,item:RawHotItem):{id:string;sourceItemKey:string}{
+  const sourceItemKey=String(item.sourceMetadata?.sourceItemKey ?? item.url ?? item.title ?? item.id);
+  return {id:`obs_${stableHash(`${runId}|${item.sourceId}|${sourceItemKey}`)}`,sourceItemKey};
+}
+
 export async function insertRawItems(db:D1Database,runId:string,items:RawHotItem[]):Promise<number>{
   if(!items.length) return 0;
   const statements=items.map((item)=>{
-    const key=String(item.sourceMetadata?.sourceItemKey ?? item.url ?? item.title);
+    const identity=rawObservationIdentity(runId,item);
     const contentHash=stableHash(`${item.sourceId}|${item.title}|${item.url??''}|${item.publishedAt??''}`);
     return db.prepare(`INSERT OR IGNORE INTO raw_items(id,run_id,source_id,source_item_key,title,normalized_title,url,rank,raw_heat,raw_metrics_json,published_at,retrieved_at,language,content_hash,category_hint)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(item.id,runId,item.sourceId,key,item.title,normalizeTitle(item.title),item.url??null,item.rank??null,item.rawHeat??null,
+      VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).bind(identity.id,runId,item.sourceId,identity.sourceItemKey,item.title,normalizeTitle(item.title),item.url??null,item.rank??null,item.rawHeat??null,
       JSON.stringify({views:item.views,likes:item.likes,comments:item.comments,shares:item.shares,searchInterest:item.searchInterest,sourceMetadata:item.sourceMetadata}),
       item.publishedAt??null,item.retrievedAt,item.language??null,contentHash,item.categoryHint??null);
   });
   const chunks=[] as D1PreparedStatement[][];
   for(let i=0;i<statements.length;i+=50) chunks.push(statements.slice(i,i+50));
   let inserted=0;
-  for(const chunk of chunks){ const results=await db.batch(chunk); inserted+=results.filter((r)=>r.success).length; }
+  for(const chunk of chunks){
+    const results=await db.batch(chunk);
+    inserted+=results.reduce((sum,r)=>sum+(r.success?Number(r.meta?.changes??1):0),0);
+  }
   return inserted;
 }
 

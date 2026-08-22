@@ -2,11 +2,13 @@
 import BaseLayout from '../layouts/BaseLayout.astro';import RankingSection from '../components/RankingSection.astro';import {apiFetch,type ApiResult,type RankingRow} from '../lib/api';
 const region=Astro.url.searchParams.get('region');const mode=Astro.url.searchParams.get('mode')??'all';
 const [cn,global]=await Promise.all([apiFetch<ApiResult<RankingRow[]>>(Astro.locals,`/api/v1/rankings?region=CN&mode=${encodeURIComponent(mode)}&limit=30`),apiFetch<ApiResult<RankingRow[]>>(Astro.locals,`/api/v1/rankings?region=GLOBAL&mode=${encodeURIComponent(mode)}&limit=30`)]);
-const cnItems=cn?.data??[],globalItems=global?.data??[];const updated=[cn?.generated_at,global?.generated_at].filter(Boolean).sort().at(-1);
+const cnItems=cn?.data??[],globalItems=global?.data??[];
+const dataTimes=[cn?.data_as_of,global?.data_as_of].filter((v):v is string=>Boolean(v)).sort();const updated=dataTimes.at(-1);
+const stale=Boolean(cn?.stale||global?.stale);
 const tabs=[['all','综合'],['rising','急升'],['new','新爆'],['persistent','持续'],['cooling','降温']];
 ---
 <BaseLayout>
-<section class="mast"><div><h1>互联网注意力，此刻流向哪里</h1><p>跨平台、跨区域、每 3 小时形成一次可追溯快照。</p></div><div class="status">{updated?<><span class="status-dot"></span>更新时间 {new Date(updated).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})}</>:'尚无生产快照'}</div></section>
+<section class="mast"><div><h1>互联网注意力，此刻流向哪里</h1><p>跨平台、跨区域、每 3 小时形成一次可追溯快照。</p></div><div class="status">{updated?<><span class="status-dot"></span>{stale?'数据延迟 · 最后快照 ':'更新时间 '}{new Date(updated).toLocaleString('zh-CN',{timeZone:'Asia/Shanghai',hour12:false})}</>:'尚无生产快照'}</div></section>
 <nav class="tabs" aria-label="榜单模式">{tabs.map(([key,label])=><a class:list={[mode===key&&'active']} href={`/?${region?`region=${region}&`:''}mode=${key}`}>{label}</a>)}</nav>
 {region==='CN'?<RankingSection title="中国大陆热点" items={cnItems}/>:region==='GLOBAL'?<RankingSection title="国际热点" items={globalItems}/>:<><RankingSection title="中国大陆热点" items={cnItems.slice(0,15)}/><RankingSection title="国际热点" items={globalItems.slice(0,15)}/></>}
 </BaseLayout>

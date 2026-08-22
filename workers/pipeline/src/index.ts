@@ -8,6 +8,10 @@ import type { ExecutionContext, MessageBatch, ProcessRunMessage, ScheduledContro
 
 const log=createLogger();
 const REGIONS:Region[]=['CN','GLOBAL'];
+const PRIMARY_CRON='0 1,4,7,10,13,16,19,22 * * *';
+const WATCHDOG_CRON='30 * * * *';
+const STALE_AFTER_MS=3.25*60*60*1000;
+const ACTIVE_GRACE_MS=45*60*1000;
 function envRecord(env:ServiceEnv):Record<string,string|undefined>{ return env as unknown as Record<string,string|undefined>; }
 function json(data:unknown,status=200,cache='public, max-age=60, s-maxage=180'){
   return new Response(JSON.stringify(data),{status,headers:{'content-type':'application/json; charset=utf-8','cache-control':cache,'access-control-allow-origin':'*','x-content-type-options':'nosniff','referrer-policy':'strict-origin-when-cross-origin'}});
@@ -18,6 +22,27 @@ function adminAuthorized(request:Request,env:ServiceEnv):boolean{ return Boolean
 function publishStatus(sourceStatuses:Record<string,string>):'PUBLISHED'|'PARTIAL'{
   return Object.values(sourceStatuses).some((s)=>!['healthy','degraded','disabled','auth_required','requires_access'].includes(s))?'PARTIAL':'PUBLISHED';
 }
+function maxCapturedAt(rows:Array<Record<string,any>>):string|null{
+  let latest='';
+  for(const row of rows){ const value=String(row.captured_at??''); if(value>latest) latest=value; }
+  return latest||null;
+}
+
+async function schedulerState(db:ServiceEnv['DB'],nowMs=Date.now()):Promise<Record<string,unknown>>{
+  const terminal=await db.prepare(`SELECT id,status,started_at,updated_at FROM system_runs WHERE status IN ('PUBLISHED','PARTIAL') ORDER BY started_at DESC LIMIT 1`).first<Record<string,unknown>>();
+  const active=await db.prepare(`SELECT id,status,started_at,updated_at FROM system_runs WHERE status IN ('STARTED','COLLECTING','PROCESSING','SCORING') ORDER BY updated_at DESC LIMIT 1`).first<Record<string,unknown>>();
+  const snapshots=await db.prepare(`SELECT region,MAX(captured_at) captured_at FROM topic_snapshots GROUP BY region`).all<Record<string,unknown>>();
+  const regionSnapshots:{CN:string|null;GLOBAL:string|null}={CN:null,GLOBAL:null};
+  for(const row of snapshots.results??[]){ if(row.region==='CN'||row.region==='GLOBAL') regionSnapshots[row.region]=String(row.captured_at??'')||null; }
+  const terminalAt=terminal?.started_at?Date.parse(String(terminal.started_at)):Number.NaN;
+  const activeAt=active?.updated_at?Date.parse(String(active.updated_at)):Number.NaN;
+  const terminalAgeMs=Number.isFinite(terminalAt)?Math.max(0,nowMs-terminalAt):null;
+  const activeAgeMs=Number.isFinite(activeAt)?Math.max(0,nowMs-activeAt):null;
+  const stale=terminalAgeMs===null||terminalAgeMs>STALE_AFTER_MS;
+  const activeFresh=activeAgeMs!==null&&activeAgeMs<ACTIVE_GRACE_MS;
+  return {now:new Date(nowMs).toISOString(),primary_cron:PRIMARY_CRON,watchdog_cron:WATCHDOG_CRON,latest_terminal_run:terminal,latest_active_run:active,region_snapshots:regionSnapshots,terminal_age_ms:terminalAgeMs,active_age_ms:activeAgeMs,stale,active_fresh:activeFresh,repair_needed:stale&&!activeFresh};
+}
+
 async function finalizeIfBothRegions(db:ServiceEnv['DB'],message:ProcessRunMessage,result:Record<string,unknown>):Promise<boolean>{
   const counts=await runSnapshotCounts(db,message.runId);
   if(counts.CN>0&&counts.GLOBAL>0){
@@ -32,8 +57,6 @@ async function finalizeIfBothRegions(db:ServiceEnv['DB'],message:ProcessRunMessa
 async function collectAndQueue(env:ServiceEnv,runId:string,capturedAt:string):Promise<PipelineRunReport>{
   await startSystemRun(env.DB,runId,capturedAt); await setRunStatus(env.DB,runId,'COLLECTING',new Date().toISOString());
   const adapters=createAdapters(envRecord(env)); const expected={CN:0,GLOBAL:0}; const available={CN:0,GLOBAL:0};
-  // A cold production database has strict foreign keys from raw_items/source_runs/source_health to sources.
-  // Register the complete source catalog before any collected item can be persisted.
   await Promise.all(adapters.map((adapter)=>upsertSource(env.DB,adapter)));
   for(const a of adapters.filter((x)=>x.enabled)) expected[a.region]+=a.reliabilityWeight;
   const results=await collectAll(adapters,{runId,retrievedAt:capturedAt,env:envRecord(env)});
@@ -70,14 +93,17 @@ async function handleApi(request:Request,env:ServiceEnv):Promise<Response>{
     if(env.ADMIN_HEALTH_TOKEN && token!==env.ADMIN_HEALTH_TOKEN) return json({status:'ok',detail:'protected'},200,'no-store');
     return json(await healthSummary(env.DB),200,'no-store');
   }
-  if(path==='/api/v1/source-health') return json({data:await sourceHealth(env.DB)});
+  if(path==='/api/v1/freshness') return json(await schedulerState(env.DB),200,'no-store');
+  if(path==='/api/v1/source-health') return json({data:await sourceHealth(env.DB)},200,'no-store');
   if(path==='/api/v1/rankings'){
     const region=url.searchParams.get('region')==='GLOBAL'?'GLOBAL':'CN'; const mode=url.searchParams.get('mode')??'all'; const limit=Number(url.searchParams.get('limit')??50);
-    return json({data:await listRankings(env.DB,region,limit,mode),region,mode,generated_at:new Date().toISOString()});
+    const data=await listRankings(env.DB,region,limit,mode); const dataAsOf=maxCapturedAt(data); const stale=!dataAsOf||Date.now()-Date.parse(dataAsOf)>4*60*60*1000;
+    return json({data,region,mode,generated_at:new Date().toISOString(),data_as_of:dataAsOf,stale},200,'no-store');
   }
   if(path==='/api/v1/topics'){
-    const q=(url.searchParams.get('q')??'').trim(); if(q) return json({data:await searchTopics(env.DB,q,Number(url.searchParams.get('limit')??30))});
-    const region=url.searchParams.get('region')==='GLOBAL'?'GLOBAL':'CN'; return json({data:await listRankings(env.DB,region,Number(url.searchParams.get('limit')??50),'all')});
+    const q=(url.searchParams.get('q')??'').trim(); if(q) return json({data:await searchTopics(env.DB,q,Number(url.searchParams.get('limit')??30))},200,'no-store');
+    const region=url.searchParams.get('region')==='GLOBAL'?'GLOBAL':'CN'; const data=await listRankings(env.DB,region,Number(url.searchParams.get('limit')??50),'all');
+    return json({data,region,generated_at:new Date().toISOString(),data_as_of:maxCapturedAt(data)},200,'no-store');
   }
   const match=path.match(/^\/api\/v1\/topics\/([^/]+)$/);
   if(match){ const slug=decodeURIComponent(match[1]??''); const topic=await topicBySlug(env.DB,slug); if(!topic)return json({error:'topic_not_found'},404);
@@ -117,7 +143,20 @@ export default {
     if(request.method!=='GET'&&request.method!=='HEAD')return json({error:'method_not_allowed'},405,'no-store');
     return handleApi(request,env);
   },
-  async scheduled(controller:ScheduledController,env:ServiceEnv,ctx:ExecutionContext):Promise<void>{ const capturedAt=new Date(controller.scheduledTime).toISOString(); const runId=runIdFor(controller.scheduledTime); ctx.waitUntil(collectAndQueue(env,runId,capturedAt)); },
+  async scheduled(controller:ScheduledController,env:ServiceEnv,_ctx:ExecutionContext):Promise<void>{
+    const capturedAt=new Date(controller.scheduledTime).toISOString();
+    if(controller.cron===WATCHDOG_CRON){
+      const state=await schedulerState(env.DB,controller.scheduledTime);
+      if(!state.repair_needed){ log({stage:'watchdog',status:'fresh',...state}); return; }
+      const runId=runIdFor(controller.scheduledTime,'repair');
+      log({run_id:runId,stage:'watchdog',status:'repair_start',...state});
+      await collectAndQueue(env,runId,capturedAt);
+      return;
+    }
+    const runId=runIdFor(controller.scheduledTime);
+    log({run_id:runId,stage:'cron',status:'start',cron:controller.cron});
+    await collectAndQueue(env,runId,capturedAt);
+  },
   async queue(batch:MessageBatch<ProcessRunMessage>,env:ServiceEnv):Promise<void>{
     for(const message of batch.messages){
       try{

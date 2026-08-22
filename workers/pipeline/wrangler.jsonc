@@ -2,11 +2,14 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "hot-topics-pipeline",
   "main": "src/index.ts",
-  "compatibility_date": "2026-08-18",
+  "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
   "triggers": {
-    "crons": ["0 1,4,7,10,13,16,19,22 * * *"]
+    "crons": [
+      "0 1,4,7,10,13,16,19,22 * * *",
+      "30 * * * *"
+    ]
   },
   "d1_databases": [
     {
