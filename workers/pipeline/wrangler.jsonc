@@ -5,9 +5,6 @@
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
-  "limits": {
-    "cpu_ms": 300000
-  },
   "triggers": {
     "crons": [
       "0 1,4,7,10,13,16,19,22 * * *",
