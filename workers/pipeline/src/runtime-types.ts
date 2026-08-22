@@ -48,5 +48,5 @@ export interface ProcessRunMessage {
 }
 export interface ScheduledController { scheduledTime:number; cron:string; }
 export interface ExecutionContext { waitUntil(promise:Promise<unknown>):void; }
-export interface QueueMessage<T> { body:T; ack():void; retry(options?:{delaySeconds?:number}):void; }
+export interface QueueMessage<T> { body:T; attempts:number; ack():void; retry(options?:{delaySeconds?:number}):void; }
 export interface MessageBatch<T> { messages:Array<QueueMessage<T>>; queue:string; }

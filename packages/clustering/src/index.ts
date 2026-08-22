@@ -37,8 +37,7 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function tokenize(input: string): string[] {
-  const normalized = normalizeTitle(input);
+function tokenizeNormalized(normalized: string): string[] {
   const latin = normalized.match(/[a-z0-9][a-z0-9._+-]*/g) ?? [];
   const hanRuns = normalized.match(/[\p{Script=Han}]+/gu) ?? [];
   const han = hanRuns.flatMap((run) => {
@@ -50,17 +49,32 @@ export function tokenize(input: string): string[] {
   return [...new Set([...latin, ...han])];
 }
 
+export function tokenize(input: string): string[] {
+  return tokenizeNormalized(normalizeTitle(input));
+}
+
 export function jaccard(a: string[], b: string[]): number {
   const aa = new Set(a); const bb = new Set(b);
-  const intersection = [...aa].filter((x) => bb.has(x)).length;
-  const union = new Set([...aa, ...bb]).size;
-  return union ? intersection / union : 0;
+  return setJaccard(aa, bb);
+}
+
+function setJaccard<T>(a:Set<T>,b:Set<T>):number {
+  if (!a.size && !b.size) return 0;
+  const smaller=a.size<=b.size?a:b; const larger=a.size<=b.size?b:a;
+  let intersection=0;
+  for(const value of smaller) if(larger.has(value)) intersection+=1;
+  const union=a.size+b.size-intersection;
+  return union ? intersection/union : 0;
+}
+
+function charNgramsNormalized(normalized:string,n=3):string[] {
+  const value=normalized.replace(/\s+/g,'');
+  if(value.length<=n) return value?[value]:[];
+  return Array.from({length:value.length-n+1},(_,i)=>value.slice(i,i+n));
 }
 
 export function charNgrams(input: string, n = 3): string[] {
-  const value = normalizeTitle(input).replace(/\s+/g, '');
-  if (value.length <= n) return value ? [value] : [];
-  return Array.from({ length: value.length - n + 1 }, (_, i) => value.slice(i, i + n));
+  return charNgramsNormalized(normalizeTitle(input),n);
 }
 
 export function extractNumbers(input: string): string[] {
@@ -73,24 +87,44 @@ export function extractDateTokens(input: string): string[] {
 
 export function eventFingerprint(title: string): string {
   const normalized = normalizeTitle(title);
-  const significant = tokenize(normalized).filter((t) => t.length > 1).sort().slice(0, 12).join('|');
+  const significant = tokenizeNormalized(normalized).filter((t) => t.length > 1).sort().slice(0, 12).join('|');
   const numbers = extractNumbers(normalized).sort().join('|');
   const dates = extractDateTokens(normalized).sort().join('|');
   return stableHash(`${significant}::${numbers}::${dates}`);
 }
 
+interface LexicalFeatures {
+  normalized:string;
+  tokens:Set<string>;
+  chars:Set<string>;
+  numbers:Set<string>;
+  dates:Set<string>;
+}
+
+function lexicalFeatures(input:string):LexicalFeatures {
+  const normalized=normalizeTitle(input);
+  return {
+    normalized,
+    tokens:new Set(tokenizeNormalized(normalized)),
+    chars:new Set(charNgramsNormalized(normalized)),
+    numbers:new Set(extractNumbers(normalized)),
+    dates:new Set(extractDateTokens(normalized))
+  };
+}
+
+function lexicalSimilarityFromFeatures(a:LexicalFeatures,b:LexicalFeatures):number {
+  const tokenScore=setJaccard(a.tokens,b.tokens);
+  const charScore=setJaccard(a.chars,b.chars);
+  const containment=a.normalized.includes(b.normalized)||b.normalized.includes(a.normalized)?1:0;
+  let score=0.52*tokenScore+0.38*charScore+0.10*containment;
+  if(tokenScore>=0.95) score=Math.max(score,0.94);
+  if(a.numbers.size&&b.numbers.size&&setJaccard(a.numbers,b.numbers)===0) score-=CLUSTERING_THRESHOLDS.numericConflictPenalty;
+  if(a.dates.size&&b.dates.size&&setJaccard(a.dates,b.dates)===0) score-=CLUSTERING_THRESHOLDS.timeConflictPenalty;
+  return Math.max(0,Math.min(1,score));
+}
+
 export function lexicalSimilarity(a: string, b: string): number {
-  const tokenScore = jaccard(tokenize(a), tokenize(b));
-  const charScore = jaccard(charNgrams(a), charNgrams(b));
-  const aNorm = normalizeTitle(a); const bNorm = normalizeTitle(b);
-  const containment = aNorm.includes(bNorm) || bNorm.includes(aNorm) ? 1 : 0;
-  let score = 0.52 * tokenScore + 0.38 * charScore + 0.10 * containment;
-  if (tokenScore >= 0.95) score = Math.max(score, 0.94);
-  const numsA = extractNumbers(a); const numsB = extractNumbers(b);
-  if (numsA.length && numsB.length && jaccard(numsA, numsB) === 0) score -= CLUSTERING_THRESHOLDS.numericConflictPenalty;
-  const datesA = extractDateTokens(a); const datesB = extractDateTokens(b);
-  if (datesA.length && datesB.length && jaccard(datesA, datesB) === 0) score -= CLUSTERING_THRESHOLDS.timeConflictPenalty;
-  return Math.max(0, Math.min(1, score));
+  return lexicalSimilarityFromFeatures(lexicalFeatures(a),lexicalFeatures(b));
 }
 
 export interface EmbeddingProvider {
@@ -119,12 +153,12 @@ export class DisabledArbitrationProvider implements ArbitrationProvider {
   }
 }
 
-export async function decideCluster(
-  a: string,
-  b: string,
-  arbitration: ArbitrationProvider = new DisabledArbitrationProvider()
-): Promise<ClusterDecision> {
-  const similarity = lexicalSimilarity(a, b);
+async function decideClusterWithSimilarity(
+  a:string,
+  b:string,
+  similarity:number,
+  arbitration:ArbitrationProvider
+):Promise<ClusterDecision>{
   if (similarity >= CLUSTERING_THRESHOLDS.autoMerge) {
     return { sameEvent: true, confidence: similarity, reasonCode: 'high_lexical_event_match', similarity };
   }
@@ -133,6 +167,14 @@ export async function decideCluster(
   }
   if (arbitration.available()) return arbitration.decide(a, b, similarity);
   return { sameEvent: false, confidence: 0.55, reasonCode: 'ambiguous_no_llm_conservative_split', similarity };
+}
+
+export async function decideCluster(
+  a: string,
+  b: string,
+  arbitration: ArbitrationProvider = new DisabledArbitrationProvider()
+): Promise<ClusterDecision> {
+  return decideClusterWithSimilarity(a,b,lexicalSimilarity(a,b),arbitration);
 }
 
 export interface ClusterSeed { topicId: string; title: string; firstSeenAt: string; lastSeenAt: string; }
@@ -144,18 +186,23 @@ export async function assignToExistingTopics(
   arbitration: ArbitrationProvider = new DisabledArbitrationProvider()
 ): Promise<ClusterAssignment[]> {
   const assignments: ClusterAssignment[] = [];
+  // The production queue may compare dozens of items with up to 1,000 recent topics.
+  // Precompute seed features once; recomputing tokenization/ngrams for every pair can
+  // consume the entire Queue CPU budget before GLOBAL reaches snapshot generation.
+  const preparedSeeds=seeds.map((seed)=>({seed,features:lexicalFeatures(seed.title)}));
   for (const item of items) {
+    const itemFeatures=lexicalFeatures(item.title);
     let best: ClusterSeed | undefined;
     let bestSimilarity = -1;
-    for (const seed of seeds) {
-      const similarity = lexicalSimilarity(item.title, seed.title);
-      if (similarity > bestSimilarity) { best = seed; bestSimilarity = similarity; }
+    for (const prepared of preparedSeeds) {
+      const similarity = lexicalSimilarityFromFeatures(itemFeatures,prepared.features);
+      if (similarity > bestSimilarity) { best = prepared.seed; bestSimilarity = similarity; }
     }
     if (!best || bestSimilarity < CLUSTERING_THRESHOLDS.candidateMin) {
       assignments.push({ item, topicId: null, decision: null });
       continue;
     }
-    const decision = await decideCluster(item.title, best.title, arbitration);
+    const decision = await decideClusterWithSimilarity(item.title, best.title, bestSimilarity, arbitration);
     assignments.push({ item, topicId: decision.sameEvent ? best.topicId : null, decision });
   }
   return assignments;
