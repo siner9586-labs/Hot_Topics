@@ -1,11 +1,11 @@
 {
-  "status": "PRODUCTION_DEPLOYED_VERIFIED",
-  "verified_deployment_sha": "dd619e9a772f443974bc8efc972418d12384c40e",
+  "status": "PRODUCTION_REFRESH_REPAIRED_VERIFIED",
+  "verified_deployment_sha": "aefa23afb0e09052c88ab87ff850bf97b1b98452",
   "repository": "siner9586-labs/Hot_Topics",
   "production_url": "https://hots.ccwu.cc/",
   "real_data": true,
   "china_sources_working": 4,
-  "global_sources_working": 7,
+  "global_sources_working": 6,
   "source_coverage_floor": {
     "CN": 4,
     "GLOBAL": 5
@@ -20,22 +20,43 @@
   "queues_verified": true,
   "service_binding_verified": true,
   "cron_config_verified": true,
+  "watchdog_cron_config_verified": true,
   "manual_production_collection_verified": true,
-  "scheduled_collection_verified": false,
-  "last_verified_collection": {
-    "run_id": "manual_20260821180402",
-    "status": "PARTIAL",
-    "raw_item_count": 463,
-    "cn_snapshot_count": 19,
-    "global_snapshot_count": 21,
-    "working_cn_sources": ["baidu", "people", "chinanews", "toutiao"],
-    "working_global_sources": ["hackernews", "wikimedia", "bbc", "google-news", "guardian-world", "nyt-world", "aljazeera"]
+  "scheduled_collection_verified_after_refresh_fix": false,
+  "refresh_repair": {
+    "root_cause": "CN and GLOBAL heavy scoring messages could share one Queue consumer invocation; CN completed first while GLOBAL repeatedly stalled before snapshot publication. Repeated lexical feature computation amplified CPU pressure.",
+    "fixes": [
+      "max_batch_size=1 so each region receives an independent Queue invocation",
+      "max_concurrency=1 to serialize the two low-frequency D1-heavy regional jobs",
+      "max_retries=5 with DLQ retained",
+      "precompute lexical clustering features for recent topic seeds",
+      "keep Workers Free compatibility by omitting paid-only limits.cpu_ms"
+    ]
   },
-  "last_deployment_run_id": 32511327506,
-  "last_deployment_result": "SUCCESS_DUAL_REGION_AND_CUSTOM_DOMAIN_ACCEPTANCE",
+  "last_verified_collection": {
+    "run_id": "manual_20260822160341",
+    "status": "PARTIAL",
+    "started_at_utc": "2026-08-22T16:03:41.728Z",
+    "updated_at_utc": "2026-08-22T16:05:48.415Z",
+    "raw_item_count": 420,
+    "cn_snapshot_count": 60,
+    "global_snapshot_count": 90,
+    "working_cn_sources": ["baidu", "people", "chinanews", "toutiao"],
+    "working_global_sources": ["hackernews", "wikimedia", "bbc", "guardian-world", "nyt-world", "aljazeera"]
+  },
+  "last_deployment_run_id": 32583510911,
+  "last_deployment_result": "SUCCESS_DUAL_REGION_SOURCE_COVERAGE_AND_CUSTOM_DOMAIN_ACCEPTANCE",
+  "custom_domain_acceptance": {
+    "home_rendered": true,
+    "cn_ranking_rendered": true,
+    "global_ranking_rendered": true,
+    "empty_snapshot_message_absent": true,
+    "empty_ranking_message_absent": true
+  },
   "known_degradations": [
     "36KR_RSS_SCHEMA_CHANGED",
     "BILIBILI_HTTP_412_FROM_CLOUDFLARE_EGRESS",
+    "GOOGLE_NEWS_HTTP_503_AT_LAST_VERIFICATION",
     "GITHUB_TRENDING_CHALLENGE_PAGE"
   ],
   "credential_gated_sources": [
