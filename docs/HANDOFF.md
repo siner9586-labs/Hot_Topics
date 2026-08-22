@@ -2,52 +2,63 @@
 
 A fresh worker should read, in order: `README.md`, `docs/ARCHITECTURE.md`, `docs/EXECUTION_STATE.md`, `docs/FINAL_REPORT.md`, `artifacts/final_status.json`, this file, then only files implicated by the next bounded task.
 
-## Verified checkpoint — 2026-08-21
+## Verified checkpoint — 2026-08-22
 
 - Repository: `siner9586-labs/Hot_Topics`
-- Current status: `PRODUCTION_DEPLOYED_PENDING_FIRST_CRON`
-- Verified deployment SHA: `5ded5a2289c7e5b7b6c1fcd95e09851d7921542a`
-- Cloudflare deployment + public HTTP smoke run: `32495169844` — success
-- Full prior quality CI: success
-- Organization-level Cloudflare credential inheritance: verified
-- Cloudflare Account API Token authentication: verified
+- Current status: `PRODUCTION_REFRESH_REPAIRED_VERIFIED`
+- Verified deployment SHA: `aefa23afb0e09052c88ab87ff850bf97b1b98452`
+- Cloudflare deployment + real-data acceptance run: `32583510911` — success
+- Latest verified production collection: `manual_20260822160341`
+- Collection result: `PARTIAL`, 420 real raw items, CN 60 snapshots, GLOBAL 90 snapshots
+- Production source coverage: CN 4 working sources, GLOBAL 6 working sources
+- Custom domain: `https://hots.ccwu.cc/` — rendered CN/GLOBAL rankings verified from GitHub-hosted runner
 
-## Verified production resources
+## Refresh incident and fix
 
-- Web Worker: `https://hot-topics-web.zz9w9z.workers.dev`
-- Pipeline Worker/API: `https://hot-topics-pipeline.zz9w9z.workers.dev`
-- D1: `hot-topics` (`1a39041d-4f3b-4cea-b929-6006fa6299ce`)
-- Queue: `hot-topics-pipeline`
-- DLQ: `hot-topics-pipeline-dlq`
-- Cron: `0 1,4,7,10,13,16,19,22 * * *` UTC
-- Web service binding: `API -> hot-topics-pipeline`
-- Astro session KV: provisioned
+The stale-site incident was not caused by the Cron expression or by source collection. A pre-fix production run collected 422 real items and completed CN=60 snapshots, but GLOBAL remained at 0 and the run stayed `PROCESSING`.
 
-## Verified production behavior
+The repaired runtime now uses:
 
-The deployment workflow has successfully verified over real public HTTP:
+- Queue `max_batch_size=1` so CN and GLOBAL receive independent consumer invocations;
+- Queue `max_concurrency=1` so the two D1-heavy regional jobs do not contend;
+- Queue `max_retries=5` with the existing DLQ;
+- precomputed lexical clustering features instead of recomputing seed token/ngram features for every candidate pair;
+- no explicit `limits.cpu_ms`, because the current Workers Free production plan rejects paid-plan CPU overrides.
 
-- pipeline `/health`
-- pipeline `/api/v1/topics?limit=3`
-- web `/` rendered HTML
+This was verified in production: CN reached 60, then GLOBAL advanced from 0 through intermediate snapshot counts to 90, after which the run became terminal `PARTIAL`.
 
-The post-deploy HTTP checks are now permanent in `.github/workflows/deploy.yml`.
+## Other freshness protections already active
 
-## Deliberately unresolved gate
+- Raw source-item identity is separate from run-scoped observation identity, so recurring hot items are stored again on each new run.
+- Current rankings select snapshots from the newest completed production run, not each topic's independent historical latest snapshot.
+- Ranking APIs expose real `data_as_of` / stale state and use `no-store`.
+- Rendered HTML uses real snapshot time and is non-cacheable.
+- Primary Cron: `0 1,4,7,10,13,16,19,22 * * *` UTC.
+- Watchdog Cron: `30 * * * *` UTC, with stale-state gating.
 
-Immediately after first deployment, production D1 was empty: topic/raw/snapshot counts were all zero and `last_run` was null. The deployment occurred between Cron windows, so the scheduled handler had not yet executed.
+## Verification that must remain in CI/deploy
 
-Do not fake or manually fabricate a successful scheduled cycle. Cloudflare documents manual scheduled-handler invocation as a local development facility. No temporary one-minute production schedule was installed.
+Do not weaken the current acceptance gates. A production deployment is only successful when all of the following pass:
 
-Next bounded verification after the first real Cron event:
+1. Cloudflare authentication and Worker deployment;
+2. D1 migrations and Queue bindings;
+3. protected real collection trigger;
+4. terminal run with CN > 0 and GLOBAL > 0 snapshots;
+5. production working-source floors CN >= 4 and GLOBAL >= 5;
+6. rendered custom-domain home/CN/GLOBAL pages contain non-empty topic lists;
+7. commit status `cloudflare/production` becomes success.
 
-1. read `/health` and require a non-null `last_run`;
-2. require non-zero raw/topic/snapshot counts if compliant public sources returned data;
-3. inspect source health and Queue processing outcome;
-4. verify `/api/v1/topics` returns real production topics;
-5. verify the web ranking renders those topics through the service binding;
-6. if all pass, set `artifacts/final_status.json` to `PRODUCTION_DEPLOYED`.
+## Current non-blocking source degradation
 
-## Independent source breadth work
+At the latest run:
 
-Current compliant working-source breadth remains CN 2 / GLOBAL 3 versus the preferred CN >=3 / GLOBAL >=4 target. Continue source restoration/replacement without bypassing login, CAPTCHA, challenge pages, anti-bot controls or provider terms.
+- 36Kr RSS: schema changed / no items;
+- Bilibili: HTTP 412;
+- Google News: HTTP 503;
+- GitHub Trending: challenge page.
+
+Do not bypass provider anti-bot, login, CAPTCHA, or access controls to restore those sources. Healthy source coverage already passes the production floor.
+
+## Remaining narrow evidence item
+
+The repaired pipeline has been exercised end-to-end by a protected real production run using the same collection/Queue/scoring/D1 functions used by Cron, and both Cron triggers are deployed. A naturally scheduled post-repair Cron invocation has not yet been separately observed. If future work is only verification, inspect the next scheduled cycle rather than changing the working production architecture.
