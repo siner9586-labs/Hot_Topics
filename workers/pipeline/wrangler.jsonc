@@ -5,6 +5,9 @@
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
+  "limits": {
+    "cpu_ms": 300000
+  },
   "triggers": {
     "crons": [
       "0 1,4,7,10,13,16,19,22 * * *",
@@ -25,9 +28,10 @@
     "consumers": [
       {
         "queue": "hot-topics-pipeline",
-        "max_batch_size": 5,
-        "max_batch_timeout": 10,
-        "max_retries": 3,
+        "max_batch_size": 1,
+        "max_batch_timeout": 1,
+        "max_retries": 5,
+        "max_concurrency": 2,
         "dead_letter_queue": "hot-topics-pipeline-dlq"
       }
     ]
