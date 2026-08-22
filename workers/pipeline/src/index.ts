@@ -163,7 +163,7 @@ export default {
         const result=await processRun(env.DB,message.body);
         const finalized=await finalizeIfBothRegions(env.DB,message.body,result);
         message.ack();
-        log({run_id:message.body.runId,region:message.body.region,stage:'publish',status:finalized?publishStatus(message.body.sourceStatuses):'REGION_COMPLETE',...result});
+        log({run_id:message.body.runId,stage:'publish',status:finalized?publishStatus(message.body.sourceStatuses):'REGION_COMPLETE',...result});
       } catch(error){
         log({run_id:message.body.runId,region:message.body.region,stage:'process',status:'retry',detail:error instanceof Error?error.message:'unknown_error'});
         message.retry({delaySeconds:60});

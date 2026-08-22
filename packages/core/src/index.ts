@@ -22,7 +22,7 @@ export interface RawHotItem {
   sourceType: string;
   region: Region;
   title: string;
-  url?: string;
+  url?: string | undefined;
   rank?: number;
   rawHeat?: number;
   views?: number;
